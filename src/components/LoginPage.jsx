@@ -82,7 +82,7 @@ const LoginPage = () => {
   return (
     <Container
       fluid
-      className="d-flex justify-content-center align-items-center vh-100"
+      className="d-flex justify-content-center align-items-center vh-100 "
       style={{ backgroundColor: "#ffffff" }}
     >
       <Card
