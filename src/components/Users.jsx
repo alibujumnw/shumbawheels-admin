@@ -1,6 +1,7 @@
-// components/Users.jsx github
+// components/Users.jsx
 import React, { useState, useEffect } from "react";
-import { Table, Form, Button, Badge, Pagination, Spinner, Alert } from "react-bootstrap";
+import { Table, Form, Button, Badge, Pagination, Spinner, Alert, Row, Col, Card, Modal } from "react-bootstrap";
+import axios from "axios";
 
 const Users = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -8,21 +9,28 @@ const Users = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const itemsPerPage = 10;
 
   // Get token from localStorage
   const getToken = () => {
-    return localStorage.getItem('token') || localStorage.getItem('access_token') || localStorage.getItem('authToken');
+    return localStorage.getItem('authToken') || localStorage.getItem('token') || '';
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    fetchUsers(currentPage);
+  }, [currentPage]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (page = 1) => {
     try {
       setLoading(true);
       setError("");
+      setSuccessMessage("");
       
       const token = getToken();
       
@@ -32,58 +40,153 @@ const Users = () => {
         return;
       }
 
-      const response = await fetch('https://api.shumbawheels.co.zw/api/admin/users', {
-        method: 'GET',
+      const response = await axios.get('https://api.shumbawheels.co.zw/api/admin/users', {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
+        },
+        params: {
+          page: page,
+          per_page: itemsPerPage
         }
       });
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          setError("Session expired. Please login again.");
-        } else {
-          throw new Error(`Failed to fetch users: ${response.status}`);
-        }
-        return;
-      }
+      console.log("API Response:", response.data);
 
-      const data = await response.json();
-      
-      // Handle different response structures
-      if (Array.isArray(data)) {
-        setUsers(data);
-      } else if (data.data && Array.isArray(data.data)) {
-        setUsers(data.data);
-      } else if (data.users && Array.isArray(data.users)) {
-        setUsers(data.users);
-      } else if (data.success && Array.isArray(data.data)) {
-        setUsers(data.data);
-      } else if (data.success && Array.isArray(data.users)) {
-        setUsers(data.users);
+      // Handle API response based on your data structure
+      if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        setUsers(response.data.data);
+        
+        // If API provides pagination info
+        if (response.data.meta) {
+          setCurrentPage(response.data.meta.current_page || page);
+          setTotalPages(response.data.meta.last_page || 1);
+          setTotalUsers(response.data.meta.total || response.data.data.length);
+        } else if (response.data.pagination) {
+          setCurrentPage(response.data.pagination.current_page || page);
+          setTotalPages(response.data.pagination.total_pages || 1);
+          setTotalUsers(response.data.pagination.total || response.data.data.length);
+        } else {
+          // Fallback if no pagination info
+          setTotalUsers(response.data.data.length);
+          setTotalPages(Math.ceil(response.data.data.length / itemsPerPage));
+        }
       } else {
-        // If response is an object with user data as properties
-        const usersArray = Object.values(data).filter(item => 
-          item && typeof item === 'object' && (item.firstname || item.first_name || item.email)
-        );
-        if (usersArray.length > 0) {
-          setUsers(usersArray);
+        // Handle different response structure
+        const data = response.data;
+        
+        if (Array.isArray(data)) {
+          setUsers(data);
+          setTotalUsers(data.length);
+          setTotalPages(Math.ceil(data.length / itemsPerPage));
+        } else if (data.success && Array.isArray(data.data)) {
+          setUsers(data.data);
+          setTotalUsers(data.data.length);
+          setTotalPages(Math.ceil(data.data.length / itemsPerPage));
         } else {
           setUsers([]);
+          setError("Invalid data format received from server");
         }
       }
       
     } catch (error) {
       console.error('Error fetching users:', error);
-      setError("Failed to load users. Please try again.");
+      
+      if (error.response) {
+        if (error.response.status === 401) {
+          setError("Session expired. Please login again.");
+        } else if (error.response.status === 403) {
+          setError("You don't have permission to view users.");
+        } else if (error.response.status === 404) {
+          setError("Users endpoint not found.");
+        } else {
+          setError(`Server error: ${error.response.status}. Please try again.`);
+        }
+      } else if (error.request) {
+        setError("No response from server. Please check your internet connection.");
+      } else {
+        setError("Failed to load users. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter users based on search
+  const handleDeleteClick = (user) => {
+    setUserToDelete(user);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+
+    try {
+      setDeleting(true);
+      const token = getToken();
+      
+      if (!token) {
+        setError("Authentication required. Please login again.");
+        return;
+      }
+
+      const response = await axios.delete(
+        `https://api.shumbawheels.co.zw/api/admin/delete-user/${userToDelete.id}`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      console.log("Delete Response:", response.data);
+
+      if (response.data && response.data.success) {
+        setSuccessMessage(`User "${userToDelete.firstname} ${userToDelete.lastname}" deleted successfully.`);
+        
+        // Remove the user from the local state
+        setUsers(prevUsers => prevUsers.filter(user => user.id !== userToDelete.id));
+        
+        // Update total users count
+        setTotalUsers(prev => prev - 1);
+        
+        // Close the modal
+        setShowDeleteModal(false);
+        setUserToDelete(null);
+        
+        // Auto-hide success message after 5 seconds
+        setTimeout(() => {
+          setSuccessMessage("");
+        }, 5000);
+      } else {
+        setError(response.data.message || "Failed to delete user. Please try again.");
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      
+      if (error.response) {
+        if (error.response.status === 401) {
+          setError("Session expired. Please login again.");
+        } else if (error.response.status === 403) {
+          setError("You don't have permission to delete users.");
+        } else if (error.response.status === 404) {
+          setError("User not found.");
+        } else {
+          setError(`Error: ${error.response.data.message || "Failed to delete user"}`);
+        }
+      } else if (error.request) {
+        setError("No response from server. Please check your internet connection.");
+      } else {
+        setError("Failed to delete user. Please try again.");
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Filter users based on search (client-side filtering as fallback)
   const filteredUsers = users.filter(user => {
     if (!user) return false;
     
@@ -93,38 +196,43 @@ const Users = () => {
       (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
       (user.lastname && user.lastname.toLowerCase().includes(searchLower)) ||
       (user.email && user.email.toLowerCase().includes(searchLower)) ||
-      (user.phone && user.phone.includes(searchQuery)) ||
-      (user.mac_address && user.mac_address.toLowerCase().includes(searchLower)) ||
-      (user.macAddress && user.macAddress.toLowerCase().includes(searchLower)) ||
-      (user.first_name && user.first_name.toLowerCase().includes(searchLower)) ||
-      (user.last_name && user.last_name.toLowerCase().includes(searchLower))
+      (user.phone_number && user.phone_number.includes(searchQuery)) ||
+      (user.payment_status && user.payment_status.toLowerCase().includes(searchLower)) ||
+      (user.role && user.role.toLowerCase().includes(searchLower)) ||
+      (user.mac_address && user.mac_address.toLowerCase().includes(searchLower))
     );
   });
-
-  // Pagination logic
-  const indexOfLastUser = currentPage * itemsPerPage;
-  const indexOfFirstUser = indexOfLastUser - itemsPerPage;
-  const currentUsers = filteredUsers.slice(indexOfFirstUser, indexOfLastUser);
-  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
-
-  const handlePageChange = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
 
   const getPaymentStatusBadge = (status) => {
     if (!status) return <Badge bg="secondary">Unknown</Badge>;
     
     const statusLower = status.toLowerCase();
-    if (statusLower.includes('paid') || statusLower === 'paid') {
+    if (statusLower === 'paid') {
       return <Badge bg="success">Paid</Badge>;
-    } else if (statusLower.includes('pending') || statusLower === 'pending') {
+    } else if (statusLower === 'pending') {
       return <Badge bg="warning">Pending</Badge>;
-    } else if (statusLower.includes('active') || statusLower === 'active') {
+    } else if (statusLower === 'active') {
       return <Badge bg="success">Active</Badge>;
-    } else if (statusLower.includes('inactive') || statusLower === 'inactive') {
+    } else if (statusLower === 'inactive') {
       return <Badge bg="secondary">Inactive</Badge>;
     } else {
       return <Badge bg="secondary">{status}</Badge>;
+    }
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return 'N/A';
+    try {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return iso;
     }
   };
 
@@ -141,7 +249,13 @@ const Users = () => {
     }
   };
 
-  if (loading) {
+  const handleSearch = (e) => {
+    e.preventDefault();
+    // If you want server-side search, you can modify the API call here
+    // For now, using client-side filtering
+  };
+
+  if (loading && users.length === 0) {
     return (
       <div className="p-4">
         <div className="text-center py-5">
@@ -152,29 +266,20 @@ const Users = () => {
     );
   }
 
-  if (error) {
+  if (error && users.length === 0) {
     return (
       <div className="p-4">
         <Alert variant="danger">
-          {error}
-          <div className="mt-2">
+          <Alert.Heading>Error Loading Users</Alert.Heading>
+          <p>{error}</p>
+          <hr />
+          <div className="d-flex justify-content-end">
             <Button 
               variant="outline-danger" 
-              size="sm" 
-              className="me-2"
-              onClick={fetchUsers}
+              onClick={() => fetchUsers(currentPage)}
             >
               Retry
             </Button>
-            {error.includes("login") && (
-              <Button 
-                variant="primary" 
-                size="sm"
-                onClick={() => window.location.href = '/login'}
-              >
-                Go to Login
-              </Button>
-            )}
           </div>
         </Alert>
       </div>
@@ -183,152 +288,313 @@ const Users = () => {
 
   return (
     <div className="p-4">
+      {/* Success Alert */}
+      {successMessage && (
+        <Alert variant="success" dismissible onClose={() => setSuccessMessage("")}>
+          <i className="bi bi-check-circle-fill me-2"></i>
+          {successMessage}
+        </Alert>
+      )}
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="danger" dismissible onClose={() => setError("")}>
+          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          {error}
+        </Alert>
+      )}
+
+      {/* Header Stats */}
+      <Row className="mb-4">
+        <Col md={3}>
+          <Card className="shadow-sm border-0">
+            <Card.Body className="text-center">
+              <h6 className="text-muted mb-2">Total Users</h6>
+              <h3 className="fw-bold text-primary">{totalUsers}</h3>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="shadow-sm border-0">
+            <Card.Body className="text-center">
+              <h6 className="text-muted mb-2">Admins</h6>
+              <h3 className="fw-bold text-info">
+                {users.filter(u => u.role === 'admin').length}
+              </h3>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="shadow-sm border-0">
+            <Card.Body className="text-center">
+              <h6 className="text-muted mb-2">Paid Users</h6>
+              <h3 className="fw-bold text-success">
+                {users.filter(u => u.payment_status === 'paid').length}
+              </h3>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="shadow-sm border-0">
+            <Card.Body className="text-center">
+              <h6 className="text-muted mb-2">Pending</h6>
+              <h3 className="fw-bold text-warning">
+                {users.filter(u => u.payment_status === 'pending').length}
+              </h3>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
       {/* Header */}
-      <div className="mb-4">
-        <h2 className="fw-bold">Users</h2>
-        <p className="text-muted">Manage system users and their permissions</p>
-        
-        <div className="d-flex justify-content-between align-items-center mt-3">
-          <div>
-            <Button 
-              variant="outline-primary" 
-              size="sm"
-              onClick={fetchUsers}
-              disabled={loading}
-            >
-              <i className="bi bi-arrow-clockwise me-1"></i>
-              Refresh
-            </Button>
-          </div>
-          <div className="text-muted small">
-            Total Users: {users.length}
-          </div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h2 className="fw-bold mb-1">Users Management</h2>
+          <p className="text-muted mb-0">View and manage all system users</p>
+        </div>
+        <div>
+          <Button 
+            variant="outline-primary" 
+            onClick={() => fetchUsers(currentPage)}
+            disabled={loading}
+            className="me-2"
+          >
+            <i className="bi bi-arrow-clockwise me-1"></i>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+          <Button variant="primary">
+            <i className="bi bi-plus-circle me-1"></i>
+            Add User
+          </Button>
         </div>
       </div>
 
       {/* Search Bar */}
-      <div className="mb-4">
-        <Form.Group>
-          <Form.Control
-            type="text"
-            placeholder="Search users by name, email, phone, or MAC address..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="py-2"
-          />
-        </Form.Group>
-        <div className="text-muted small mt-2">
-          Showing {currentUsers.length} of {filteredUsers.length} filtered users (Total: {users.length})
-        </div>
-      </div>
+      <Card className="shadow-sm border-0 mb-4">
+        <Card.Body>
+          <Form onSubmit={handleSearch}>
+            <Row>
+              <Col md={8}>
+                <Form.Group>
+                  <Form.Control
+                    type="text"
+                    placeholder="Search users by name, email, phone, or status..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="py-2"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Button 
+                  type="submit" 
+                  variant="primary" 
+                  className="w-100 py-2"
+                >
+                  <i className="bi bi-search me-2"></i>
+                  Search
+                </Button>
+              </Col>
+            </Row>
+          </Form>
+          {searchQuery && (
+            <div className="text-muted small mt-2">
+              Found {filteredUsers.length} users matching "{searchQuery}"
+            </div>
+          )}
+        </Card.Body>
+      </Card>
 
       {/* Users Table */}
-      <div className="table-responsive">
-        <Table bordered hover className="align-middle">
-          <thead className="table-light">
-            <tr>
-              <th>#</th>
-              <th>Firstname</th>
-              <th>Lastname</th>
-              <th>Payment Status</th>
-              <th>Email</th>
-              <th>Phone Number</th>
-              <th>Role</th>
-              <th>MAC Address</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {currentUsers.length === 0 ? (
-              <tr>
-                <td colSpan="9" className="text-center py-4">
-                  {searchQuery ? 'No users match your search.' : 'No users found.'}
-                </td>
-              </tr>
-            ) : (
-              currentUsers.map((user, index) => (
-                <tr key={user.id || user.user_id || index}>
-                  <td className="text-muted">{indexOfFirstUser + index + 1}</td>
-                  <td className="fw-medium">
-                    {user.firstname || user.first_name || 'N/A'}
-                  </td>
-                  <td>{user.lastname || user.last_name || 'N/A'}</td>
-                  <td>
-                    {getPaymentStatusBadge(user.paymentStatus || user.payment_status || user.status)}
-                  </td>
-                  <td>
-                    <small>{user.email || 'N/A'}</small>
-                  </td>
-                  <td>{user.phone || user.phone_number || 'N/A'}</td>
-                  <td>
-                    {getRoleBadge(user.role || user.user_type)}
-                  </td>
-                  <td>
-                    <small className="text-muted">
-                      {user.mac_address || user.macAddress || user.mac || 'N/A'}
-                    </small>
-                  </td>
-                  <td>
-                    <div className="d-flex gap-2">
-                      <Button variant="outline-primary" size="sm">
-                        <i className="bi bi-pencil me-1"></i>
-                        Edit
-                      </Button>
-                      <Button variant="outline-danger" size="sm">
-                        <i className="bi bi-trash me-1"></i>
-                        Delete
-                      </Button>
-                    </div>
-                  </td>
+      <Card className="shadow-sm border-0">
+        <Card.Body className="p-0">
+          <div className="table-responsive">
+            <Table hover className="mb-0">
+              <thead className="table-light">
+                <tr>
+                  <th className="p-3">ID</th>
+                  <th className="p-3">Name</th>
+                  <th className="p-3">Email</th>
+                  <th className="p-3">Phone</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Role</th>
+                  <th className="p-3">Actions</th>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </Table>
-      </div>
+              </thead>
+              <tbody>
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="text-center py-5">
+                      <div className="py-4">
+                        <i className="bi bi-people fs-1 text-muted"></i>
+                        <p className="mt-3">
+                          {searchQuery ? 'No users match your search.' : 'No users found.'}
+                        </p>
+                        {searchQuery && (
+                          <Button 
+                            variant="outline-secondary" 
+                            size="sm"
+                            onClick={() => setSearchQuery("")}
+                          >
+                            Clear Search
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((user, index) => (
+                    <tr key={user.id}>
+                      <td className="p-3">
+                        <small className="text-muted">#{user.id.substring(0, 8)}...</small>
+                      </td>
+                      <td className="p-3">
+                        <div className="fw-medium">
+                          {user.firstname} {user.lastname}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <small>{user.email}</small>
+                      </td>
+                      <td className="p-3">{user.phone_number}</td>
+                      <td className="p-3">
+                        {getPaymentStatusBadge(user.payment_status)}
+                      </td>
+                      <td className="p-3">
+                        {getRoleBadge(user.role)}
+                      </td>
+                      <td className="p-3">
+                        <div className="d-flex gap-1">
+                          <Button variant="outline-primary" size="sm" title="View">
+                            <i className="bi bi-eye"></i>
+                          </Button>
+                          <Button variant="outline-warning" size="sm" title="Edit">
+                            <i className="bi bi-pencil"></i>
+                          </Button>
+                          <Button 
+                            variant="outline-danger" 
+                            size="sm" 
+                            title="Delete"
+                            onClick={() => handleDeleteClick(user)}
+                            disabled={deleting}
+                          >
+                            <i className="bi bi-trash"></i>
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </Table>
+          </div>
+        </Card.Body>
+      </Card>
 
       {/* Pagination */}
-      {filteredUsers.length > 0 && (
+      {filteredUsers.length > 0 && totalPages > 1 && (
         <div className="d-flex justify-content-between align-items-center mt-4">
           <div className="text-muted small">
-            Page {currentPage} of {totalPages}
+            Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredUsers.length)} of {filteredUsers.length} users
           </div>
           <Pagination>
-            <Pagination.Prev 
-              onClick={() => handlePageChange(currentPage - 1)} 
+            <Pagination.First 
+              onClick={() => setCurrentPage(1)} 
               disabled={currentPage === 1}
-            >
-              <i className="bi bi-chevron-left"></i> Previous
-            </Pagination.Prev>
+            />
+            <Pagination.Prev 
+              onClick={() => setCurrentPage(currentPage - 1)} 
+              disabled={currentPage === 1}
+            />
             
-            {[...Array(totalPages)].map((_, index) => {
-              // Show limited page numbers for better UX
-              if (totalPages <= 7 || 
-                  index === 0 || 
-                  index === totalPages - 1 || 
-                  (index >= currentPage - 2 && index <= currentPage + 2)) {
-                return (
-                  <Pagination.Item
-                    key={index + 1}
-                    active={index + 1 === currentPage}
-                    onClick={() => handlePageChange(index + 1)}
-                  >
-                    {index + 1}
-                  </Pagination.Item>
-                );
+            {[...Array(Math.min(5, totalPages))].map((_, index) => {
+              let pageNum;
+              if (totalPages <= 5) {
+                pageNum = index + 1;
+              } else if (currentPage <= 3) {
+                pageNum = index + 1;
+              } else if (currentPage >= totalPages - 2) {
+                pageNum = totalPages - 4 + index;
+              } else {
+                pageNum = currentPage - 2 + index;
               }
-              return null;
+              
+              return (
+                <Pagination.Item
+                  key={pageNum}
+                  active={pageNum === currentPage}
+                  onClick={() => setCurrentPage(pageNum)}
+                >
+                  {pageNum}
+                </Pagination.Item>
+              );
             })}
             
             <Pagination.Next 
-              onClick={() => handlePageChange(currentPage + 1)} 
+              onClick={() => setCurrentPage(currentPage + 1)} 
               disabled={currentPage === totalPages}
-            >
-              Next <i className="bi bi-chevron-right"></i>
-            </Pagination.Next>
+            />
+            <Pagination.Last 
+              onClick={() => setCurrentPage(totalPages)} 
+              disabled={currentPage === totalPages}
+            />
           </Pagination>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Confirm Delete</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {userToDelete && (
+            <>
+              <p className="mb-3">
+                Are you sure you want to delete the user <strong>{userToDelete.firstname} {userToDelete.lastname}</strong>?
+              </p>
+              <div className="alert alert-warning">
+                <i className="bi bi-exclamation-triangle-fill me-2"></i>
+                This action cannot be undone. All user data will be permanently deleted.
+              </div>
+              <div className="mt-3">
+                <small className="text-muted">
+                  <strong>Email:</strong> {userToDelete.email}<br />
+                  <strong>Phone:</strong> {userToDelete.phone_number}<br />
+                  <strong>Role:</strong> {userToDelete.role}<br />
+                  <strong>Status:</strong> {userToDelete.payment_status}
+                </small>
+              </div>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button 
+            variant="secondary" 
+            onClick={() => {
+              setShowDeleteModal(false);
+              setUserToDelete(null);
+            }}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button 
+            variant="danger" 
+            onClick={handleConfirmDelete}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />
+                Deleting...
+              </>
+            ) : (
+              'Delete User'
+            )}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

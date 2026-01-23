@@ -1,7 +1,8 @@
 // components/Dashboard.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Row, Col, Button, Card, Badge, Table } from "react-bootstrap";
+import Users from "./Users"; // <-- Import the real Users component
 import Answers from "./Answers";
 import Notes from "./Notes";
 import Exams from "./Exams";
@@ -9,7 +10,7 @@ import Questions from "./Questions";
 import Payments from "./Payments";
 import Booking from "./Booking"; 
 import Settings from "./Settings";
-import ApkUpload from "./ApkUpload"; // Import the new APK Upload component
+import ApkUpload from "./ApkUpload";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -22,13 +23,61 @@ const Dashboard = () => {
     navigate("/login");
   };
 
-  const stats = {
+  const [stats, setStats] = useState({
     totalUsers: 54,
     examsToday: 0,
     passRate: "0%",
     payments: 1,
     passVsFail: "100/0",
-  };
+  });
+
+  useEffect(() => {
+    const token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("userToken") ||
+      localStorage.getItem("authToken");
+    if (!token) return;
+    
+    // Fetch payments count
+    fetch("https://api.shumbawheels.co.zw/api/admin/count-payments", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Network response was not ok");
+        return res.json();
+      })
+      .then((data) => {
+        if (data && typeof data.data !== "undefined") {
+          setStats((s) => ({ ...s, payments: data.data }));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch payments count", err);
+      });
+
+    // Fetch total users count
+    fetch("https://api.shumbawheels.co.zw/api/admin/count-clients", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Network response was not ok");
+        return res.json();
+      })
+      .then((data) => {
+        if (data && typeof data.data !== "undefined") {
+          setStats((s) => ({ ...s, totalUsers: data.data }));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch total users", err);
+      });
+  }, []);
 
   const monthlyExams = [
     { month: "Jan", count: 14 },
@@ -55,95 +104,15 @@ const Dashboard = () => {
     { key: "exams", label: "Exams", icon: "clipboard-data" },
     { key: "payments", label: "Payment History", icon: "credit-card" },
     { key: "booking", label: "Booking", icon: "calendar-check" },
-    { key: "apk-upload", label: "APK Upload", icon: "cloud-upload" }, // New APK Upload menu item
+    { key: "apk-upload", label: "APK Upload", icon: "cloud-upload" },
     { key: "settings", label: "Settings", icon: "gear" },
   ];
-
-  // Users Component (keeping this inline since it's simple)
-  const Users = () => (
-    <div className="p-4">
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h4 className="fw-bold">Users</h4>
-        <Button variant="primary">
-          <i className="bi bi-plus-circle me-2"></i>
-          Add New User
-        </Button>
-      </div>
-      <Card className="shadow-sm border-0">
-        <Card.Body className="p-0">
-          <Table responsive hover className="mb-0">
-            <thead className="bg-light">
-              <tr>
-                <th className="fw-medium p-3">#</th>
-                <th className="fw-medium p-3">Name</th>
-                <th className="fw-medium p-3">Phone</th>
-                <th className="fw-medium p-3">Email</th>
-                <th className="fw-medium p-3">Status</th>
-                <th className="fw-medium p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[1, 2, 3, 4, 5].map((user) => (
-                <tr key={user}>
-                  <td className="p-3">{user}</td>
-                  <td className="p-3">User {user}</td>
-                  <td className="p-3">+123456789{user}</td>
-                  <td className="p-3">user{user}@example.com</td>
-                  <td className="p-3">
-                    <Badge bg="success" className="px-3 py-1">
-                      Active
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    <div className="d-flex gap-2">
-                      <Button variant="outline-primary" size="sm">
-                        <i className="bi bi-eye me-1"></i>
-                        View
-                      </Button>
-                      <Button variant="outline-warning" size="sm">
-                        <i className="bi bi-pencil me-1"></i>
-                        Edit
-                      </Button>
-                      <Button variant="outline-danger" size="sm">
-                        <i className="bi bi-trash me-1"></i>
-                        Delete
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-          <div className="d-flex justify-content-between align-items-center p-3 border-top">
-            <div className="text-muted">Showing 5 of 54 users</div>
-            <div className="d-flex gap-2">
-              <Button variant="outline-secondary" size="sm" disabled>
-                « Previous
-              </Button>
-              <Button variant="outline-primary" size="sm" className="active">
-                1
-              </Button>
-              <Button variant="outline-secondary" size="sm">
-                2
-              </Button>
-              <Button variant="outline-secondary" size="sm">
-                3
-              </Button>
-              <Button variant="outline-secondary" size="sm">
-                Next »
-              </Button>
-            </div>
-          </div>
-        </Card.Body>
-      </Card>
-    </div>
-  );
 
   // Render content based on active view
   const renderContent = () => {
     switch (activeView) {
       case "users":
-        return <Users />;
+        return <Users />; // <-- This will now render the real Users component
       case "questions":
         return <Questions />;
       case "answers":
@@ -157,9 +126,9 @@ const Dashboard = () => {
       case "booking":
         return <Booking />;
       case "apk-upload":
-        return <ApkUpload />; // Render APK Upload component
+        return <ApkUpload />;
       case "settings":
-        return <Settings />; // Use the imported Settings component
+        return <Settings />;
       case "dashboard":
       default:
         return (
@@ -241,7 +210,7 @@ const Dashboard = () => {
             >
               <i className="bi bi-list"></i>
             </Button>
-            <h4 className="mb-0 fw-bold">Admin Panel</h4>
+            <h4 className="mb-0 fw-bold">Shumba Wheels Admin Panel</h4>
           </Col>
 
           <Col xs={6} className="text-end">
@@ -287,12 +256,10 @@ const Dashboard = () => {
         >
           {renderContent()}
 
-          {/* Footer - Only show on dashboard view */}
-          {activeView === "dashboard" && (
-            <div className="text-center mt-4 text-muted small p-4 border-top">
-              © {new Date().getFullYear()} Shumba Wheels Admin Panel
-            </div>
-          )}
+          {/* Footer */}
+          <div className="text-center mt-4 text-muted small p-4 border-top">
+            © {new Date().getFullYear()} Shumba Wheels Admin Panel
+          </div>
         </div>
       </div>
     </div>

@@ -23,8 +23,9 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
+    
       const response = await axios.post(
-        "https://api.shumbawheels.co.zw/login", // Your endpoint
+        "https://api.shumbawheels.co.zw/api/login",
         {
           phone_number: phoneNumber.trim(),
           password: password.trim()
@@ -34,55 +35,91 @@ const LoginPage = () => {
             "Content-Type": "application/json",
             "Accept": "application/json"
           },
-          timeout: 10000 // 10 second timeout
+          timeout: 10000
         }
       );
 
-      // Check if login was successful
-      if (response.data && response.data.success) {
-        // Store authentication data
-        localStorage.setItem("isAuthenticated", "true");
-        localStorage.setItem("userPhone", phoneNumber);
-        localStorage.setItem("authToken", response.data.token || "");
-        localStorage.setItem("userData", JSON.stringify(response.data.user || {}));
+    
+      const responseData = response.data;
+      
+      const isSuccess = 
+        responseData.success === true || 
+        responseData.success === "true" ||
+        responseData.status === "success" ||
+        responseData.status === 200 ||
+        response.status === 200;
+      
+      if (isSuccess) {
         
-        // Redirect to dashboard
-        navigate("/dashboard");
+        // Store authentication data - ALWAYS store
+        localStorage.setItem("isAuthenticated", "true");
+        localStorage.setItem("userPhone", phoneNumber.trim());
+        localStorage.setItem("authToken", responseData.token || responseData.access_token || "");
+        localStorage.setItem("userData", JSON.stringify(responseData.user || responseData.data || {}));
+         
+        // Force a small delay to ensure localStorage is set
+        setTimeout(() => {
+          console.log("🔄 Redirecting to /dashboard");
+          navigate("/dashboard", { replace: true });
+        }, 100);
+        
       } else {
-        setError(response.data.message || "Login failed. Please check your credentials.");
+        console.warn("⚠️ API returned non-success response:", responseData);
+        setError(responseData.message || responseData.error || "Login failed. Please check your credentials.");
       }
     } catch (err) {
+      console.error("🔥 Error during login:", err);
+      
       // Handle different types of errors
       if (err.response) {
-        // Server responded with error status
+        console.error("📡 Server Response Error:");
+        console.error("- Status:", err.response.status);
+        console.error("- Data:", err.response.data);
+        console.error("- Headers:", err.response.headers);
+        
         if (err.response.status === 401) {
           setError("Invalid phone number or password");
         } else if (err.response.status === 422) {
-          setError("Validation error. Please check your inputs.");
+          // Show validation errors if available
+          const errors = err.response.data.errors;
+          if (errors) {
+            const errorMsg = Object.values(errors).flat().join(', ');
+            setError(`Validation errors: ${errorMsg}`);
+          } else {
+            setError("Validation error. Please check your inputs.");
+          }
         } else if (err.response.status === 500) {
           setError("Server error. Please try again later.");
         } else {
-          setError(`Error: ${err.response.data.message || "Login failed"}`);
+          setError(`Error ${err.response.status}: ${err.response.data.message || "Login failed"}`);
         }
       } else if (err.request) {
-        // Request was made but no response received
+        console.error("📡 No response received:", err.request);
         setError("No response from server. Please check your internet connection.");
       } else if (err.code === 'ECONNABORTED') {
         setError("Request timeout. Please try again.");
       } else {
-        // Other errors
+        console.error("❌ Other error:", err.message);
         setError("An error occurred. Please try again.");
-        console.error("Login error:", err);
       }
     } finally {
       setLoading(false);
     }
   };
 
+  // Test function to check localStorage
+  const testLocalStorage = () => {
+    console.log("🔍 Current localStorage:");
+    console.log("- isAuthenticated:", localStorage.getItem("isAuthenticated"));
+    console.log("- userPhone:", localStorage.getItem("userPhone"));
+    console.log("- authToken:", localStorage.getItem("authToken"));
+    console.log("- userData:", localStorage.getItem("userData"));
+  };
+
   return (
     <Container
       fluid
-      className="d-flex justify-content-center align-items-center vh-100 "
+      className="d-flex justify-content-center align-items-center vh-100"
       style={{ backgroundColor: "#ffffff" }}
     >
       <Card
@@ -104,10 +141,11 @@ const LoginPage = () => {
 
           <h4 className="text-center fw-bold mb-4">Sign In</h4>
 
+          
           {/* Error Alert */}
           {error && (
             <Alert variant="danger" dismissible onClose={() => setError("")} className="mb-3">
-              {error}
+              <strong>Error:</strong> {error}
             </Alert>
           )}
 
@@ -116,12 +154,16 @@ const LoginPage = () => {
               <Form.Label>Phone Number</Form.Label>
               <Form.Control
                 type="tel"
-                placeholder="Enter Phone Number"
+                placeholder="Enter Phone Number (e.g., +263771234567)"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 required
                 disabled={loading}
+                autoFocus
               />
+              <Form.Text className="text-muted">
+                Use your registered phone number
+              </Form.Text>
             </Form.Group>
 
             <Form.Group className="mb-4">
@@ -141,6 +183,7 @@ const LoginPage = () => {
               className="w-100 mb-4" 
               disabled={loading}
               style={{ height: "45px" }}
+              variant="primary"
             >
               {loading ? (
                 <>
