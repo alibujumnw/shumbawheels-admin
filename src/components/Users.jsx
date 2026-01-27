@@ -1,6 +1,9 @@
 // components/Users.jsx
 import React, { useState, useEffect } from "react";
-import { Table, Form, Button, Badge, Pagination, Spinner, Alert, Row, Col, Card, Modal } from "react-bootstrap";
+import { 
+  Table, Form, Button, Badge, Pagination, Spinner, Alert, 
+  Row, Col, Card, Modal, FloatingLabel 
+} from "react-bootstrap";
 import axios from "axios";
 
 const Users = () => {
@@ -15,7 +18,23 @@ const Users = () => {
   const [userToDelete, setUserToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [addingUser, setAddingUser] = useState(false);
   const itemsPerPage = 10;
+
+  // New user form state
+  const [newUser, setNewUser] = useState({
+    firstname: '',
+    lastname: '',
+    phone_number: '',
+    email: '',
+    password: '',
+    mac_address: '',
+    role: 'user'
+  });
+
+  // Form validation errors
+  const [formErrors, setFormErrors] = useState({});
 
   // Get token from localStorage
   const getToken = () => {
@@ -183,6 +202,149 @@ const Users = () => {
       }
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // Handle form input changes for new user
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setNewUser({
+      ...newUser,
+      [name]: value
+    });
+    
+    // Clear error for this field if user starts typing
+    if (formErrors[name]) {
+      setFormErrors({
+        ...formErrors,
+        [name]: ''
+      });
+    }
+  };
+
+  // Validate form
+  const validateForm = () => {
+    const errors = {};
+    
+    if (!newUser.firstname.trim()) {
+      errors.firstname = 'First name is required';
+    }
+    
+    if (!newUser.lastname.trim()) {
+      errors.lastname = 'Last name is required';
+    }
+    
+    if (!newUser.phone_number.trim()) {
+      errors.phone_number = 'Phone number is required';
+    } else if (!/^\+?[\d\s-]+$/.test(newUser.phone_number)) {
+      errors.phone_number = 'Please enter a valid phone number';
+    }
+    
+    if (newUser.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newUser.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    if (newUser.password && newUser.password.length < 4) {
+      errors.password = 'Password must be at least 4 characters';
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Handle add user submission
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
+    try {
+      setAddingUser(true);
+      
+      // Prepare user data
+      const userData = {
+        firstname: newUser.firstname,
+        lastname: newUser.lastname,
+        phone_number: newUser.phone_number,
+        email: newUser.email || null,
+        password: newUser.password || undefined,
+        mac_address: newUser.mac_address || null,
+        role: newUser.role || 'user'
+      };
+
+      console.log('Sending user data:', userData);
+
+      const response = await axios.post(
+        'https://api.shumbawheels.co.zw/api/register',
+        userData,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Add User Response:', response.data);
+
+      if (response.data.success) {
+        setSuccessMessage(`User "${newUser.firstname} ${newUser.lastname}" created successfully!`);
+        
+        // Reset form
+        setNewUser({
+          firstname: '',
+          lastname: '',
+          phone_number: '',
+          email: '',
+          password: '',
+          mac_address: '',
+          role: 'user'
+        });
+        
+        // Close modal
+        setShowAddUserModal(false);
+        setFormErrors({});
+        
+        // Refresh users list
+        fetchUsers(currentPage);
+        
+        // Auto-hide success message after 5 seconds
+        setTimeout(() => {
+          setSuccessMessage("");
+        }, 5000);
+      } else {
+        setError(response.data.message || 'Failed to create user. Please try again.');
+      }
+      
+    } catch (error) {
+      console.error('Error adding user:', error);
+      
+      if (error.response) {
+        if (error.response.status === 422) {
+          // Laravel validation errors
+          const validationErrors = error.response.data.errors;
+          const formattedErrors = {};
+          
+          Object.keys(validationErrors).forEach(key => {
+            formattedErrors[key] = validationErrors[key][0];
+          });
+          
+          setFormErrors(formattedErrors);
+          setError('Please fix the form errors below.');
+        } else if (error.response.status === 409) {
+          setError('User with this phone number or email already exists.');
+        } else {
+          setError(error.response.data.message || `Server error: ${error.response.status}`);
+        }
+      } else if (error.request) {
+        setError('No response from server. Please check your internet connection.');
+      } else {
+        setError('Failed to create user. Please try again.');
+      }
+    } finally {
+      setAddingUser(false);
     }
   };
 
@@ -362,7 +524,10 @@ const Users = () => {
             <i className="bi bi-arrow-clockwise me-1"></i>
             {loading ? 'Refreshing...' : 'Refresh'}
           </Button>
-          <Button variant="primary">
+          <Button 
+            variant="primary"
+            onClick={() => setShowAddUserModal(true)}
+          >
             <i className="bi bi-plus-circle me-1"></i>
             Add User
           </Button>
@@ -541,6 +706,193 @@ const Users = () => {
           </Pagination>
         </div>
       )}
+
+      {/* Add User Modal */}
+      <Modal 
+        show={showAddUserModal} 
+        onHide={() => setShowAddUserModal(false)} 
+        size="lg"
+        centered
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Add New User</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleAddUser}>
+          <Modal.Body>
+            {error && (
+              <Alert variant="danger" className="py-2">
+                <small>{error}</small>
+              </Alert>
+            )}
+            
+            <Row>
+              <Col md={6}>
+                <FloatingLabel controlId="firstname" label="First Name *" className="mb-3">
+                  <Form.Control
+                    type="text"
+                    name="firstname"
+                    placeholder="First Name"
+                    value={newUser.firstname}
+                    onChange={handleInputChange}
+                    isInvalid={!!formErrors.firstname}
+                    required
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {formErrors.firstname}
+                  </Form.Control.Feedback>
+                </FloatingLabel>
+              </Col>
+              
+              <Col md={6}>
+                <FloatingLabel controlId="lastname" label="Last Name *" className="mb-3">
+                  <Form.Control
+                    type="text"
+                    name="lastname"
+                    placeholder="Last Name"
+                    value={newUser.lastname}
+                    onChange={handleInputChange}
+                    isInvalid={!!formErrors.lastname}
+                    required
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {formErrors.lastname}
+                  </Form.Control.Feedback>
+                </FloatingLabel>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <FloatingLabel controlId="phone_number" label="Phone Number *" className="mb-3">
+                  <Form.Control
+                    type="tel"
+                    name="phone_number"
+                    placeholder="Phone Number"
+                    value={newUser.phone_number}
+                    onChange={handleInputChange}
+                    isInvalid={!!formErrors.phone_number}
+                    required
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {formErrors.phone_number}
+                  </Form.Control.Feedback>
+                </FloatingLabel>
+              </Col>
+              
+              <Col md={6}>
+                <FloatingLabel controlId="email" label="Email (Optional)" className="mb-3">
+                  <Form.Control
+                    type="email"
+                    name="email"
+                    placeholder="Email"
+                    value={newUser.email}
+                    onChange={handleInputChange}
+                    isInvalid={!!formErrors.email}
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {formErrors.email}
+                  </Form.Control.Feedback>
+                </FloatingLabel>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <FloatingLabel controlId="password" label="Password (Optional)" className="mb-3">
+                  <Form.Control
+                    type="password"
+                    name="password"
+                    placeholder="Password"
+                    value={newUser.password}
+                    onChange={handleInputChange}
+                    isInvalid={!!formErrors.password}
+                  />
+                  <Form.Text className="text-muted">
+                    Minimum 4 characters. If empty, a random password will be generated.
+                  </Form.Text>
+                  <Form.Control.Feedback type="invalid">
+                    {formErrors.password}
+                  </Form.Control.Feedback>
+                </FloatingLabel>
+              </Col>
+              
+              <Col md={6}>
+                <FloatingLabel controlId="mac_address" label="MAC Address (Optional)" className="mb-3">
+                  <Form.Control
+                    type="text"
+                    name="mac_address"
+                    placeholder="MAC Address"
+                    value={newUser.mac_address}
+                    onChange={handleInputChange}
+                  />
+                </FloatingLabel>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col md={6}>
+                <FloatingLabel controlId="role" label="Role" className="mb-3">
+                  <Form.Select
+                    name="role"
+                    value={newUser.role}
+                    onChange={handleInputChange}
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                    <option value="student">Student</option>
+                    <option value="staff">Staff</option>
+                  </Form.Select>
+                </FloatingLabel>
+              </Col>
+            </Row>
+
+            <div className="alert alert-info mt-3">
+              <small>
+                <i className="bi bi-info-circle me-2"></i>
+                Fields marked with * are required. Phone number must be unique.
+              </small>
+            </div>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button 
+              variant="secondary" 
+              onClick={() => {
+                setShowAddUserModal(false);
+                setFormErrors({});
+                setNewUser({
+                  firstname: '',
+                  lastname: '',
+                  phone_number: '',
+                  email: '',
+                  password: '',
+                  mac_address: '',
+                  role: 'user'
+                });
+              }}
+              disabled={addingUser}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="primary" 
+              type="submit"
+              disabled={addingUser}
+            >
+              {addingUser ? (
+                <>
+                  <Spinner animation="border" size="sm" className="me-2" />
+                  Creating User...
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-person-plus me-1"></i>
+                  Create User
+                </>
+              )}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)} centered>
