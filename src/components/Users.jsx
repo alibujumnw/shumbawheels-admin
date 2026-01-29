@@ -22,6 +22,9 @@ const Users = () => {
   const [addingUser, setAddingUser] = useState(false);
   const itemsPerPage = 10;
 
+  // Track if we're doing server-side or client-side search
+  const [isSearching, setIsSearching] = useState(false);
+
   // New user form state
   const [newUser, setNewUser] = useState({
     firstname: '',
@@ -42,10 +45,18 @@ const Users = () => {
   };
 
   useEffect(() => {
-    fetchUsers(currentPage);
-  }, [currentPage]);
+    fetchData();
+  }, [currentPage]); // Only fetch when page changes
 
-  const fetchUsers = async (page = 1) => {
+  const fetchData = () => {
+    if (isSearching && searchQuery) {
+      fetchUsersWithSearch(currentPage, searchQuery);
+    } else {
+      fetchUsers(currentPage);
+    }
+  };
+
+  const fetchUsers = async (page = 1, search = "") => {
     try {
       setLoading(true);
       setError("");
@@ -59,16 +70,23 @@ const Users = () => {
         return;
       }
 
+      const params = {
+        page: page,
+        per_page: itemsPerPage
+      };
+
+      // Add search parameter if provided
+      if (search && search.trim() !== "") {
+        params.search = search.trim();
+      }
+
       const response = await axios.get('https://api.shumbawheels.co.zw/api/admin/users', {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        params: {
-          page: page,
-          per_page: itemsPerPage
-        }
+        params: params
       });
 
       console.log("API Response:", response.data);
@@ -132,6 +150,34 @@ const Users = () => {
     }
   };
 
+  // Separate function for search to handle debouncing if needed
+  const fetchUsersWithSearch = async (page = 1, search = "") => {
+    await fetchUsers(page, search);
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    // Reset to page 1 when searching
+    setCurrentPage(1);
+    
+    // Fetch users with search query
+    if (searchQuery.trim() !== "") {
+      setIsSearching(true);
+      fetchUsersWithSearch(1, searchQuery);
+    } else {
+      // If search is cleared, fetch all users
+      setIsSearching(false);
+      fetchUsers(1);
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setIsSearching(false);
+    setCurrentPage(1);
+    fetchUsers(1);
+  };
+
   const handleDeleteClick = (user) => {
     setUserToDelete(user);
     setShowDeleteModal(true);
@@ -149,8 +195,10 @@ const Users = () => {
         return;
       }
 
-      const response = await axios.delete(
+      // Use POST method for deletion (as API expects POST)
+      const response = await axios.post(
         `https://api.shumbawheels.co.zw/api/admin/delete-user/${userToDelete.id}`,
+        {}, // Empty body
         {
           headers: {
             'Accept': 'application/json',
@@ -165,13 +213,7 @@ const Users = () => {
       if (response.data && response.data.success) {
         setSuccessMessage(`User "${userToDelete.firstname} ${userToDelete.lastname}" deleted successfully.`);
         
-        // Remove the user from the local state
-        setUsers(prevUsers => prevUsers.filter(user => user.id !== userToDelete.id));
-        
-        // Update total users count
-        setTotalUsers(prev => prev - 1);
-        
-        // Close the modal
+        // Close the modal first
         setShowDeleteModal(false);
         setUserToDelete(null);
         
@@ -179,6 +221,23 @@ const Users = () => {
         setTimeout(() => {
           setSuccessMessage("");
         }, 5000);
+        
+        // REFRESH DATA FROM SERVER INSTEAD OF JUST FILTERING LOCALLY
+        // Check if we need to go to previous page
+        const wasLastUserOnPage = users.length === 1;
+        
+        if (wasLastUserOnPage && currentPage > 1) {
+          // If it was the last user on the page, go to previous page
+          setCurrentPage(currentPage - 1);
+        } else {
+          // Otherwise, refresh current page data by fetching it directly
+          if (isSearching && searchQuery) {
+            await fetchUsersWithSearch(currentPage, searchQuery);
+          } else {
+            await fetchUsers(currentPage);
+          }
+        }
+        
       } else {
         setError(response.data.message || "Failed to delete user. Please try again.");
       }
@@ -192,8 +251,14 @@ const Users = () => {
           setError("You don't have permission to delete users.");
         } else if (error.response.status === 404) {
           setError("User not found.");
+        } else if (error.response.status === 405) {
+          // Method Not Allowed - try different approach
+          setError("Delete method not allowed. Trying alternative...");
+          
+          // Try alternative delete methods
+          await tryAlternativeDeleteMethods();
         } else {
-          setError(`Error: ${error.response.data.message || "Failed to delete user"}`);
+          setError(`Error: ${error.response.data?.message || "Failed to delete user"}`);
         }
       } else if (error.request) {
         setError("No response from server. Please check your internet connection.");
@@ -203,6 +268,73 @@ const Users = () => {
     } finally {
       setDeleting(false);
     }
+  };
+
+  // Refresh current page data
+  const refreshCurrentPage = () => {
+    if (isSearching && searchQuery) {
+      fetchUsersWithSearch(currentPage, searchQuery);
+    } else {
+      fetchUsers(currentPage);
+    }
+  };
+
+  // Alternative delete methods if POST doesn't work
+  const tryAlternativeDeleteMethods = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    const alternatives = [
+      {
+        method: 'POST',
+        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}/delete`,
+        data: {}
+      },
+      {
+        method: 'DELETE',
+        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}`,
+        data: {}
+      },
+      {
+        method: 'POST',
+        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}`,
+        data: { _method: 'DELETE' } // Laravel method spoofing
+      }
+    ];
+
+    for (const alt of alternatives) {
+      try {
+        console.log(`Trying alternative: ${alt.method} ${alt.url}`);
+        const response = await axios({
+          method: alt.method,
+          url: alt.url,
+          data: alt.data,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.data && response.data.success) {
+          setSuccessMessage(`User "${userToDelete.firstname} ${userToDelete.lastname}" deleted successfully.`);
+          setShowDeleteModal(false);
+          setUserToDelete(null);
+          
+          // Refresh data from server
+          if (isSearching && searchQuery) {
+            await fetchUsersWithSearch(currentPage, searchQuery);
+          } else {
+            await fetchUsers(currentPage);
+          }
+          return;
+        }
+      } catch (err) {
+        console.log(`Alternative ${alt.method} failed:`, err.message);
+      }
+    }
+    
+    setError("All delete methods failed. Please check API documentation.");
   };
 
   // Handle form input changes for new user
@@ -307,8 +439,13 @@ const Users = () => {
         setShowAddUserModal(false);
         setFormErrors({});
         
-        // Refresh users list
-        fetchUsers(currentPage);
+        // Refresh users list - go to first page to see new user
+        setCurrentPage(1);
+        if (isSearching && searchQuery) {
+          fetchUsersWithSearch(1, searchQuery);
+        } else {
+          fetchUsers(1);
+        }
         
         // Auto-hide success message after 5 seconds
         setTimeout(() => {
@@ -411,12 +548,6 @@ const Users = () => {
     }
   };
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    // If you want server-side search, you can modify the API call here
-    // For now, using client-side filtering
-  };
-
   if (loading && users.length === 0) {
     return (
       <div className="p-4">
@@ -438,7 +569,7 @@ const Users = () => {
           <div className="d-flex justify-content-end">
             <Button 
               variant="outline-danger" 
-              onClick={() => fetchUsers(currentPage)}
+              onClick={() => fetchData()}
             >
               Retry
             </Button>
@@ -517,7 +648,7 @@ const Users = () => {
         <div>
           <Button 
             variant="outline-primary" 
-            onClick={() => fetchUsers(currentPage)}
+            onClick={refreshCurrentPage}
             disabled={loading}
             className="me-2"
           >
@@ -550,7 +681,7 @@ const Users = () => {
                   />
                 </Form.Group>
               </Col>
-              <Col md={4}>
+              <Col md={2}>
                 <Button 
                   type="submit" 
                   variant="primary" 
@@ -560,11 +691,27 @@ const Users = () => {
                   Search
                 </Button>
               </Col>
+              <Col md={2}>
+                <Button 
+                  type="button" 
+                  variant="outline-secondary" 
+                  className="w-100 py-2"
+                  onClick={handleClearSearch}
+                  disabled={!searchQuery && !isSearching}
+                >
+                  <i className="bi bi-x-circle me-2"></i>
+                  Clear
+                </Button>
+              </Col>
             </Row>
           </Form>
           {searchQuery && (
             <div className="text-muted small mt-2">
-              Found {filteredUsers.length} users matching "{searchQuery}"
+              {isSearching ? (
+                <>Searching for "{searchQuery}"... Showing page {currentPage} of {totalPages}</>
+              ) : (
+                <>Found {filteredUsers.length} users matching "{searchQuery}"</>
+              )}
             </div>
           )}
         </Card.Body>
@@ -587,7 +734,7 @@ const Users = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.length === 0 ? (
+                {users.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="text-center py-5">
                       <div className="py-4">
@@ -599,7 +746,7 @@ const Users = () => {
                           <Button 
                             variant="outline-secondary" 
                             size="sm"
-                            onClick={() => setSearchQuery("")}
+                            onClick={handleClearSearch}
                           >
                             Clear Search
                           </Button>
@@ -608,7 +755,7 @@ const Users = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredUsers.map((user, index) => (
+                  users.map((user, index) => (
                     <tr key={user.id}>
                       <td className="p-3">
                         <small className="text-muted">#{user.id.substring(0, 8)}...</small>
@@ -657,10 +804,11 @@ const Users = () => {
       </Card>
 
       {/* Pagination */}
-      {filteredUsers.length > 0 && totalPages > 1 && (
+      {users.length > 0 && totalPages > 1 && (
         <div className="d-flex justify-content-between align-items-center mt-4">
           <div className="text-muted small">
-            Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredUsers.length)} of {filteredUsers.length} users
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalUsers)} of {totalUsers} users
+            {isSearching && searchQuery && ` matching "${searchQuery}"`}
           </div>
           <Pagination>
             <Pagination.First 
