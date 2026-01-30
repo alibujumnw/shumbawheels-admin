@@ -1,8 +1,7 @@
-// components/Users.jsx
 import React, { useState, useEffect } from "react";
 import { 
   Table, Form, Button, Badge, Pagination, Spinner, Alert, 
-  Row, Col, Card, Modal, FloatingLabel 
+  Row, Col, Card, Modal, FloatingLabel, InputGroup 
 } from "react-bootstrap";
 import axios from "axios";
 
@@ -20,10 +19,8 @@ const Users = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [addingUser, setAddingUser] = useState(false);
+  const [perPage, setPerPage] = useState(10); // Users per page
   const itemsPerPage = 10;
-
-  // Track if we're doing server-side or client-side search
-  const [isSearching, setIsSearching] = useState(false);
 
   // New user form state
   const [newUser, setNewUser] = useState({
@@ -44,18 +41,7 @@ const Users = () => {
     return localStorage.getItem('authToken') || localStorage.getItem('token') || '';
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [currentPage]); // Only fetch when page changes
-
-  const fetchData = () => {
-    if (isSearching && searchQuery) {
-      fetchUsersWithSearch(currentPage, searchQuery);
-    } else {
-      fetchUsers(currentPage);
-    }
-  };
-
+  // Fetch users data
   const fetchUsers = async (page = 1, search = "") => {
     try {
       setLoading(true);
@@ -72,7 +58,7 @@ const Users = () => {
 
       const params = {
         page: page,
-        per_page: itemsPerPage
+        per_page: perPage
       };
 
       // Add search parameter if provided
@@ -93,38 +79,30 @@ const Users = () => {
 
       // Handle API response based on your data structure
       if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        // Your API returns data in a "data" array
         setUsers(response.data.data);
         
-        // If API provides pagination info
+        // If your API provides pagination info in response
+        // You may need to adjust this based on your actual API response
         if (response.data.meta) {
           setCurrentPage(response.data.meta.current_page || page);
           setTotalPages(response.data.meta.last_page || 1);
           setTotalUsers(response.data.meta.total || response.data.data.length);
+          setPerPage(response.data.meta.per_page || perPage);
         } else if (response.data.pagination) {
           setCurrentPage(response.data.pagination.current_page || page);
           setTotalPages(response.data.pagination.total_pages || 1);
           setTotalUsers(response.data.pagination.total || response.data.data.length);
+          setPerPage(response.data.pagination.per_page || perPage);
         } else {
-          // Fallback if no pagination info
+          // Fallback if no pagination info - implement client-side pagination
           setTotalUsers(response.data.data.length);
-          setTotalPages(Math.ceil(response.data.data.length / itemsPerPage));
+          const totalPagesCount = Math.ceil(response.data.data.length / perPage);
+          setTotalPages(totalPagesCount);
         }
       } else {
-        // Handle different response structure
-        const data = response.data;
-        
-        if (Array.isArray(data)) {
-          setUsers(data);
-          setTotalUsers(data.length);
-          setTotalPages(Math.ceil(data.length / itemsPerPage));
-        } else if (data.success && Array.isArray(data.data)) {
-          setUsers(data.data);
-          setTotalUsers(data.data.length);
-          setTotalPages(Math.ceil(data.data.length / itemsPerPage));
-        } else {
-          setUsers([]);
-          setError("Invalid data format received from server");
-        }
+        setUsers([]);
+        setError("Invalid data format received from server");
       }
       
     } catch (error) {
@@ -150,30 +128,19 @@ const Users = () => {
     }
   };
 
-  // Separate function for search to handle debouncing if needed
-  const fetchUsersWithSearch = async (page = 1, search = "") => {
-    await fetchUsers(page, search);
-  };
+  useEffect(() => {
+    fetchUsers(currentPage);
+  }, [currentPage, perPage]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     // Reset to page 1 when searching
     setCurrentPage(1);
-    
-    // Fetch users with search query
-    if (searchQuery.trim() !== "") {
-      setIsSearching(true);
-      fetchUsersWithSearch(1, searchQuery);
-    } else {
-      // If search is cleared, fetch all users
-      setIsSearching(false);
-      fetchUsers(1);
-    }
+    fetchUsers(1, searchQuery);
   };
 
   const handleClearSearch = () => {
     setSearchQuery("");
-    setIsSearching(false);
     setCurrentPage(1);
     fetchUsers(1);
   };
@@ -195,10 +162,8 @@ const Users = () => {
         return;
       }
 
-      // Use POST method for deletion (as API expects POST)
-      const response = await axios.post(
-        `https://api.shumbawheels.co.zw/api/admin/delete-user/${userToDelete.id}`,
-        {}, // Empty body
+      const response = await axios.delete(
+        `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}`,
         {
           headers: {
             'Accept': 'application/json',
@@ -213,7 +178,7 @@ const Users = () => {
       if (response.data && response.data.success) {
         setSuccessMessage(`User "${userToDelete.firstname} ${userToDelete.lastname}" deleted successfully.`);
         
-        // Close the modal first
+        // Close the modal
         setShowDeleteModal(false);
         setUserToDelete(null);
         
@@ -222,21 +187,8 @@ const Users = () => {
           setSuccessMessage("");
         }, 5000);
         
-        // REFRESH DATA FROM SERVER INSTEAD OF JUST FILTERING LOCALLY
-        // Check if we need to go to previous page
-        const wasLastUserOnPage = users.length === 1;
-        
-        if (wasLastUserOnPage && currentPage > 1) {
-          // If it was the last user on the page, go to previous page
-          setCurrentPage(currentPage - 1);
-        } else {
-          // Otherwise, refresh current page data by fetching it directly
-          if (isSearching && searchQuery) {
-            await fetchUsersWithSearch(currentPage, searchQuery);
-          } else {
-            await fetchUsers(currentPage);
-          }
-        }
+        // Refresh users list
+        fetchUsers(currentPage, searchQuery);
         
       } else {
         setError(response.data.message || "Failed to delete user. Please try again.");
@@ -251,12 +203,6 @@ const Users = () => {
           setError("You don't have permission to delete users.");
         } else if (error.response.status === 404) {
           setError("User not found.");
-        } else if (error.response.status === 405) {
-          // Method Not Allowed - try different approach
-          setError("Delete method not allowed. Trying alternative...");
-          
-          // Try alternative delete methods
-          await tryAlternativeDeleteMethods();
         } else {
           setError(`Error: ${error.response.data?.message || "Failed to delete user"}`);
         }
@@ -268,73 +214,6 @@ const Users = () => {
     } finally {
       setDeleting(false);
     }
-  };
-
-  // Refresh current page data
-  const refreshCurrentPage = () => {
-    if (isSearching && searchQuery) {
-      fetchUsersWithSearch(currentPage, searchQuery);
-    } else {
-      fetchUsers(currentPage);
-    }
-  };
-
-  // Alternative delete methods if POST doesn't work
-  const tryAlternativeDeleteMethods = async () => {
-    const token = getToken();
-    if (!token) return;
-
-    const alternatives = [
-      {
-        method: 'POST',
-        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}/delete`,
-        data: {}
-      },
-      {
-        method: 'DELETE',
-        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}`,
-        data: {}
-      },
-      {
-        method: 'POST',
-        url: `https://api.shumbawheels.co.zw/api/admin/users/${userToDelete.id}`,
-        data: { _method: 'DELETE' } // Laravel method spoofing
-      }
-    ];
-
-    for (const alt of alternatives) {
-      try {
-        console.log(`Trying alternative: ${alt.method} ${alt.url}`);
-        const response = await axios({
-          method: alt.method,
-          url: alt.url,
-          data: alt.data,
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        if (response.data && response.data.success) {
-          setSuccessMessage(`User "${userToDelete.firstname} ${userToDelete.lastname}" deleted successfully.`);
-          setShowDeleteModal(false);
-          setUserToDelete(null);
-          
-          // Refresh data from server
-          if (isSearching && searchQuery) {
-            await fetchUsersWithSearch(currentPage, searchQuery);
-          } else {
-            await fetchUsers(currentPage);
-          }
-          return;
-        }
-      } catch (err) {
-        console.log(`Alternative ${alt.method} failed:`, err.message);
-      }
-    }
-    
-    setError("All delete methods failed. Please check API documentation.");
   };
 
   // Handle form input changes for new user
@@ -441,11 +320,7 @@ const Users = () => {
         
         // Refresh users list - go to first page to see new user
         setCurrentPage(1);
-        if (isSearching && searchQuery) {
-          fetchUsersWithSearch(1, searchQuery);
-        } else {
-          fetchUsers(1);
-        }
+        fetchUsers(1, searchQuery);
         
         // Auto-hide success message after 5 seconds
         setTimeout(() => {
@@ -485,23 +360,7 @@ const Users = () => {
     }
   };
 
-  // Filter users based on search (client-side filtering as fallback)
-  const filteredUsers = users.filter(user => {
-    if (!user) return false;
-    
-    const searchLower = searchQuery.toLowerCase();
-    
-    return (
-      (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
-      (user.lastname && user.lastname.toLowerCase().includes(searchLower)) ||
-      (user.email && user.email.toLowerCase().includes(searchLower)) ||
-      (user.phone_number && user.phone_number.includes(searchQuery)) ||
-      (user.payment_status && user.payment_status.toLowerCase().includes(searchLower)) ||
-      (user.role && user.role.toLowerCase().includes(searchLower)) ||
-      (user.mac_address && user.mac_address.toLowerCase().includes(searchLower))
-    );
-  });
-
+  // Get payment status badge
   const getPaymentStatusBadge = (status) => {
     if (!status) return <Badge bg="secondary">Unknown</Badge>;
     
@@ -519,6 +378,7 @@ const Users = () => {
     }
   };
 
+  // Format date
   const formatDate = (iso) => {
     if (!iso) return 'N/A';
     try {
@@ -535,17 +395,84 @@ const Users = () => {
     }
   };
 
+  // Get role badge
   const getRoleBadge = (role) => {
     if (!role) return <Badge bg="secondary">User</Badge>;
     
     const roleLower = role.toLowerCase();
     if (roleLower === 'admin' || roleLower === 'administrator') {
-      return <Badge bg="primary">Admin</Badge>;
+      return <Badge bg="danger">Admin</Badge>;
     } else if (roleLower === 'user' || roleLower === 'student') {
       return <Badge bg="success">User</Badge>;
+    } else if (roleLower === 'staff') {
+      return <Badge bg="info">Staff</Badge>;
     } else {
       return <Badge bg="secondary">{role}</Badge>;
     }
+  };
+
+  // Handle per page change
+  const handlePerPageChange = (e) => {
+    const newPerPage = parseInt(e.target.value);
+    setPerPage(newPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+
+  // Generate pagination items
+  const renderPaginationItems = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+    
+    // Calculate start and end page numbers
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    // Adjust start page if we're near the end
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    // First page
+    if (startPage > 1) {
+      items.push(
+        <Pagination.Item key={1} onClick={() => setCurrentPage(1)}>
+          1
+        </Pagination.Item>
+      );
+      if (startPage > 2) {
+        items.push(<Pagination.Ellipsis key="ellipsis-start" />);
+      }
+    }
+    
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+      items.push(
+        <Pagination.Item 
+          key={i} 
+          active={i === currentPage}
+          onClick={() => setCurrentPage(i)}
+        >
+          {i}
+        </Pagination.Item>
+      );
+    }
+    
+    // Last page
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        items.push(<Pagination.Ellipsis key="ellipsis-end" />);
+      }
+      items.push(
+        <Pagination.Item 
+          key={totalPages} 
+          onClick={() => setCurrentPage(totalPages)}
+        >
+          {totalPages}
+        </Pagination.Item>
+      );
+    }
+    
+    return items;
   };
 
   if (loading && users.length === 0) {
@@ -569,7 +496,7 @@ const Users = () => {
           <div className="d-flex justify-content-end">
             <Button 
               variant="outline-danger" 
-              onClick={() => fetchData()}
+              onClick={() => fetchUsers(currentPage, searchQuery)}
             >
               Retry
             </Button>
@@ -611,8 +538,8 @@ const Users = () => {
           <Card className="shadow-sm border-0">
             <Card.Body className="text-center">
               <h6 className="text-muted mb-2">Admins</h6>
-              <h3 className="fw-bold text-info">
-                {users.filter(u => u.role === 'admin').length}
+              <h3 className="fw-bold text-danger">
+                {users.filter(u => u.role && u.role.toLowerCase() === 'admin').length}
               </h3>
             </Card.Body>
           </Card>
@@ -622,7 +549,7 @@ const Users = () => {
             <Card.Body className="text-center">
               <h6 className="text-muted mb-2">Paid Users</h6>
               <h3 className="fw-bold text-success">
-                {users.filter(u => u.payment_status === 'paid').length}
+                {users.filter(u => u.payment_status && u.payment_status.toLowerCase() === 'paid').length}
               </h3>
             </Card.Body>
           </Card>
@@ -632,7 +559,7 @@ const Users = () => {
             <Card.Body className="text-center">
               <h6 className="text-muted mb-2">Pending</h6>
               <h3 className="fw-bold text-warning">
-                {users.filter(u => u.payment_status === 'pending').length}
+                {users.filter(u => u.payment_status && u.payment_status.toLowerCase() === 'pending').length}
               </h3>
             </Card.Body>
           </Card>
@@ -648,7 +575,7 @@ const Users = () => {
         <div>
           <Button 
             variant="outline-primary" 
-            onClick={refreshCurrentPage}
+            onClick={() => fetchUsers(currentPage, searchQuery)}
             disabled={loading}
             className="me-2"
           >
@@ -665,13 +592,13 @@ const Users = () => {
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search and Per Page Controls */}
       <Card className="shadow-sm border-0 mb-4">
         <Card.Body>
-          <Form onSubmit={handleSearch}>
-            <Row>
-              <Col md={8}>
-                <Form.Group>
+          <Row className="align-items-center">
+            <Col md={8}>
+              <Form onSubmit={handleSearch}>
+                <InputGroup>
                   <Form.Control
                     type="text"
                     placeholder="Search users by name, email, phone, or status..."
@@ -679,39 +606,48 @@ const Users = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="py-2"
                   />
-                </Form.Group>
-              </Col>
-              <Col md={2}>
-                <Button 
-                  type="submit" 
-                  variant="primary" 
-                  className="w-100 py-2"
+                  <Button 
+                    type="submit" 
+                    variant="primary"
+                    className="px-4"
+                  >
+                    <i className="bi bi-search me-2"></i>
+                    Search
+                  </Button>
+                  {searchQuery && (
+                    <Button 
+                      variant="outline-secondary"
+                      onClick={handleClearSearch}
+                    >
+                      <i className="bi bi-x-lg"></i>
+                    </Button>
+                  )}
+                </InputGroup>
+              </Form>
+            </Col>
+            <Col md={4} className="mt-2 mt-md-0">
+              <div className="d-flex align-items-center justify-content-end">
+                <span className="me-2 text-muted">Show:</span>
+                <Form.Select 
+                  size="sm" 
+                  style={{ width: '80px' }}
+                  value={perPage}
+                  onChange={handlePerPageChange}
                 >
-                  <i className="bi bi-search me-2"></i>
-                  Search
-                </Button>
-              </Col>
-              <Col md={2}>
-                <Button 
-                  type="button" 
-                  variant="outline-secondary" 
-                  className="w-100 py-2"
-                  onClick={handleClearSearch}
-                  disabled={!searchQuery && !isSearching}
-                >
-                  <i className="bi bi-x-circle me-2"></i>
-                  Clear
-                </Button>
-              </Col>
-            </Row>
-          </Form>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </Form.Select>
+                <span className="ms-2 text-muted">per page</span>
+              </div>
+            </Col>
+          </Row>
           {searchQuery && (
             <div className="text-muted small mt-2">
-              {isSearching ? (
-                <>Searching for "{searchQuery}"... Showing page {currentPage} of {totalPages}</>
-              ) : (
-                <>Found {filteredUsers.length} users matching "{searchQuery}"</>
-              )}
+              <i className="bi bi-search me-1"></i>
+              Showing results for "{searchQuery}" - Page {currentPage} of {totalPages}
             </div>
           )}
         </Card.Body>
@@ -725,11 +661,11 @@ const Users = () => {
               <thead className="table-light">
                 <tr>
                   <th className="p-3">ID</th>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">Phone</th>
-                  <th className="p-3">Status</th>
+                  <th className="p-3">Full Name</th>
+                  <th className="p-3">Contact Info</th>
+                  <th className="p-3">Payment Status</th>
                   <th className="p-3">Role</th>
+                  <th className="p-3">Registered</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
@@ -755,7 +691,7 @@ const Users = () => {
                     </td>
                   </tr>
                 ) : (
-                  users.map((user, index) => (
+                  users.map((user) => (
                     <tr key={user.id}>
                       <td className="p-3">
                         <small className="text-muted">#{user.id.substring(0, 8)}...</small>
@@ -764,11 +700,22 @@ const Users = () => {
                         <div className="fw-medium">
                           {user.firstname} {user.lastname}
                         </div>
+                        {user.mac_address && (
+                          <small className="text-muted d-block">
+                            MAC: {user.mac_address}
+                          </small>
+                        )}
                       </td>
                       <td className="p-3">
-                        <small>{user.email}</small>
+                        <div className="mb-1">
+                          <i className="bi bi-telephone me-1 text-muted"></i>
+                          {user.phone_number}
+                        </div>
+                        <div>
+                          <i className="bi bi-envelope me-1 text-muted"></i>
+                          {user.email || <span className="text-muted">No email</span>}
+                        </div>
                       </td>
-                      <td className="p-3">{user.phone_number}</td>
                       <td className="p-3">
                         {getPaymentStatusBadge(user.payment_status)}
                       </td>
@@ -776,17 +723,32 @@ const Users = () => {
                         {getRoleBadge(user.role)}
                       </td>
                       <td className="p-3">
-                        <div className="d-flex gap-1">
-                          <Button variant="outline-primary" size="sm" title="View">
+                        <small className="text-muted">
+                          {formatDate(user.created_at)}
+                        </small>
+                      </td>
+                      <td className="p-3">
+                        <div className="d-flex gap-2">
+                          <Button 
+                            variant="outline-info" 
+                            size="sm" 
+                            title="View Details"
+                            onClick={() => console.log('View user:', user.id)}
+                          >
                             <i className="bi bi-eye"></i>
                           </Button>
-                          <Button variant="outline-warning" size="sm" title="Edit">
+                          <Button 
+                            variant="outline-warning" 
+                            size="sm" 
+                            title="Edit User"
+                            onClick={() => console.log('Edit user:', user.id)}
+                          >
                             <i className="bi bi-pencil"></i>
                           </Button>
                           <Button 
                             variant="outline-danger" 
                             size="sm" 
-                            title="Delete"
+                            title="Delete User"
                             onClick={() => handleDeleteClick(user)}
                             disabled={deleting}
                           >
@@ -805,54 +767,52 @@ const Users = () => {
 
       {/* Pagination */}
       {users.length > 0 && totalPages > 1 && (
-        <div className="d-flex justify-content-between align-items-center mt-4">
-          <div className="text-muted small">
-            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalUsers)} of {totalUsers} users
-            {isSearching && searchQuery && ` matching "${searchQuery}"`}
-          </div>
-          <Pagination>
-            <Pagination.First 
-              onClick={() => setCurrentPage(1)} 
-              disabled={currentPage === 1}
-            />
-            <Pagination.Prev 
-              onClick={() => setCurrentPage(currentPage - 1)} 
-              disabled={currentPage === 1}
-            />
-            
-            {[...Array(Math.min(5, totalPages))].map((_, index) => {
-              let pageNum;
-              if (totalPages <= 5) {
-                pageNum = index + 1;
-              } else if (currentPage <= 3) {
-                pageNum = index + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + index;
-              } else {
-                pageNum = currentPage - 2 + index;
-              }
+        <Card className="shadow-sm border-0 mt-4">
+          <Card.Body>
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-center">
+              <div className="text-muted mb-3 mb-md-0">
+                Showing {((currentPage - 1) * perPage) + 1} to {Math.min(currentPage * perPage, totalUsers)} of {totalUsers} users
+              </div>
               
-              return (
-                <Pagination.Item
-                  key={pageNum}
-                  active={pageNum === currentPage}
-                  onClick={() => setCurrentPage(pageNum)}
+              <Pagination className="mb-0">
+                <Pagination.First 
+                  onClick={() => setCurrentPage(1)} 
+                  disabled={currentPage === 1}
+                />
+                <Pagination.Prev 
+                  onClick={() => setCurrentPage(currentPage - 1)} 
+                  disabled={currentPage === 1}
+                />
+                
+                {renderPaginationItems()}
+                
+                <Pagination.Next 
+                  onClick={() => setCurrentPage(currentPage + 1)} 
+                  disabled={currentPage === totalPages}
+                />
+                <Pagination.Last 
+                  onClick={() => setCurrentPage(totalPages)} 
+                  disabled={currentPage === totalPages}
+                />
+              </Pagination>
+              
+              <div className="mt-3 mt-md-0">
+                <Form.Select 
+                  size="sm" 
+                  style={{ width: '120px' }}
+                  value={currentPage}
+                  onChange={(e) => setCurrentPage(parseInt(e.target.value))}
                 >
-                  {pageNum}
-                </Pagination.Item>
-              );
-            })}
-            
-            <Pagination.Next 
-              onClick={() => setCurrentPage(currentPage + 1)} 
-              disabled={currentPage === totalPages}
-            />
-            <Pagination.Last 
-              onClick={() => setCurrentPage(totalPages)} 
-              disabled={currentPage === totalPages}
-            />
-          </Pagination>
-        </div>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <option key={page} value={page}>
+                      Page {page}
+                    </option>
+                  ))}
+                </Form.Select>
+              </div>
+            </div>
+          </Card.Body>
+        </Card>
       )}
 
       {/* Add User Modal */}
@@ -1059,10 +1019,11 @@ const Users = () => {
               </div>
               <div className="mt-3">
                 <small className="text-muted">
-                  <strong>Email:</strong> {userToDelete.email}<br />
+                  <strong>Email:</strong> {userToDelete.email || 'No email'}<br />
                   <strong>Phone:</strong> {userToDelete.phone_number}<br />
                   <strong>Role:</strong> {userToDelete.role}<br />
-                  <strong>Status:</strong> {userToDelete.payment_status}
+                  <strong>Status:</strong> {userToDelete.payment_status}<br />
+                  <strong>Registered:</strong> {formatDate(userToDelete.created_at)}
                 </small>
               </div>
             </>

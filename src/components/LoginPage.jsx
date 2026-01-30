@@ -9,6 +9,7 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [downloadInfo, setDownloadInfo] = useState(null);
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
@@ -108,40 +109,121 @@ const LoginPage = () => {
     }
   };
 
+  // Function to fetch download info from API
+  const fetchDownloadInfo = async () => {
+    try {
+      const response = await axios.get(
+        "https://api.shumbawheels.co.zw/api/download-app",
+        {
+          timeout: 10000,
+          headers: {
+            "Accept": "application/json"
+          }
+        }
+      );
+
+      if (response.data.download_url) {
+        setDownloadInfo({
+          download_url: response.data.download_url,
+          version: response.data.version || "Unknown",
+          file_size: response.data.file_size || 0,
+          created_at: response.data.created_at
+        });
+        return response.data;
+      } else {
+        throw new Error("No download URL received from server");
+      }
+    } catch (err) {
+      console.error("❌ Error fetching download info:", err);
+      throw err;
+    }
+  };
+
   // Function to handle APK download
   const handleDownloadApp = async () => {
     setDownloading(true);
+    setError("");
     
     try {
-      // Create a temporary link element to trigger download
-      const downloadUrl = "https://api.shumbawheels.co.zw/api/download-app";
+      // Step 1: Get the download info from the API
+      const downloadData = await fetchDownloadInfo();
       
-      // Method 1: Direct window.open (simplest)
-      window.open(downloadUrl, "_blank");
-      
-      // Method 2: Using fetch and creating blob (more control)
-      // const response = await fetch(downloadUrl);
-      // const blob = await response.blob();
-      // const url = window.URL.createObjectURL(blob);
-      // const link = document.createElement('a');
-      // link.href = url;
-      // link.download = 'shumba-wheels.apk'; // Default filename
-      // document.body.appendChild(link);
-      // link.click();
-      // document.body.removeChild(link);
-      // window.URL.revokeObjectURL(url);
-      
-      console.log("📱 APK download initiated");
+      if (downloadData.download_url) {
+        console.log("📱 Got download URL:", downloadData.download_url);
+        console.log("📦 Version:", downloadData.version);
+        console.log("💾 File size:", downloadData.file_size);
+        
+        // Step 2: Create a hidden link and trigger download
+        const link = document.createElement('a');
+        link.href = downloadData.download_url;
+        link.download = `shumba-wheels-v${downloadData.version || '1.0'}.apk`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        
+        // Add to DOM, click, and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Optional: Show success toast/message
+        // You could add a toast notification here
+        console.log("✅ Download initiated successfully");
+        
+        // Update download info state
+        setDownloadInfo({
+          download_url: downloadData.download_url,
+          version: downloadData.version,
+          file_size: downloadData.file_size,
+          created_at: downloadData.created_at
+        });
+      }
     } catch (err) {
       console.error("❌ Error downloading APK:", err);
-      setError("Failed to download app. Please try again later.");
+      
+      // Handle different types of errors
+      if (err.response) {
+        if (err.response.status === 404) {
+          setError("App file not found on server. Please contact support.");
+        } else if (err.response.status === 500) {
+          setError("Server error. Please try again later.");
+        } else {
+          setError(`Failed to download: ${err.response.data.message || "Server error"}`);
+        }
+      } else if (err.request) {
+        setError("No response from server. Please check your internet connection.");
+      } else if (err.message.includes("No download URL")) {
+        setError("Download link is currently unavailable. Please try again later.");
+      } else {
+        setError("Failed to download app. Please try again.");
+      }
     } finally {
       setDownloading(false);
     }
   };
 
+  // Function to pre-fetch download info when component mounts or button is hovered
+  const preFetchDownloadInfo = async () => {
+    // Only fetch if we haven't already fetched
+    if (!downloadInfo) {
+      try {
+        await fetchDownloadInfo();
+      } catch (err) {
+        // Silently fail - we'll handle errors when user actually clicks download
+        console.log("⚠️ Pre-fetch failed, will retry on click");
+      }
+    }
+  };
+
   // Google Play Store link (update with your actual Play Store URL)
   const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.shumbawheels.app";
+
+  // Format file size
+  const formatFileSize = (bytes) => {
+    if (!bytes) return "Unknown size";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  };
 
   return (
     <Container
@@ -233,12 +315,31 @@ const LoginPage = () => {
           {/* Download App */}
           <div className="text-center border-top pt-3">
             <p className="text-muted mb-2">Get the mobile app</p>
+            
+            {/* Download Info Display */}
+            {downloadInfo && (
+              <div className="mb-2 p-2 bg-light rounded">
+                <small className="text-muted d-block">
+                  Version: {downloadInfo.version}
+                </small>
+                <small className="text-muted d-block">
+                  Size: {formatFileSize(downloadInfo.file_size)}
+                </small>
+                {downloadInfo.created_at && (
+                  <small className="text-muted d-block">
+                    Updated: {new Date(downloadInfo.created_at).toLocaleDateString()}
+                  </small>
+                )}
+              </div>
+            )}
+            
             <div className="d-flex justify-content-center gap-2">
               <Button 
                 size="sm" 
                 variant="dark" 
                 onClick={handleDownloadApp}
                 disabled={loading || downloading}
+                onMouseEnter={preFetchDownloadInfo} // Pre-fetch on hover
               >
                 {downloading ? (
                   <>
@@ -250,10 +351,13 @@ const LoginPage = () => {
                       aria-hidden="true"
                       className="me-1"
                     />
-                    Downloading...
+                    Preparing...
                   </>
                 ) : (
-                  "Direct Download"
+                  <>
+                    <i className="bi bi-download me-1"></i>
+                    Direct Download
+                  </>
                 )}
               </Button>
               <Button 
@@ -264,9 +368,15 @@ const LoginPage = () => {
                 rel="noopener noreferrer"
                 disabled={loading}
               >
+                <i className="bi bi-google-play me-1"></i>
                 Google Play
               </Button>
             </div>
+            
+            <small className="text-muted mt-2 d-block">
+              <i className="bi bi-info-circle me-1"></i>
+              Direct download works on Android devices
+            </small>
           </div>
         </Card.Body>
       </Card>
