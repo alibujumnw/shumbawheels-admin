@@ -8,6 +8,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
@@ -107,14 +108,40 @@ const LoginPage = () => {
     }
   };
 
-  // Test function to check localStorage
-  const testLocalStorage = () => {
-    console.log("🔍 Current localStorage:");
-    console.log("- isAuthenticated:", localStorage.getItem("isAuthenticated"));
-    console.log("- userPhone:", localStorage.getItem("userPhone"));
-    console.log("- authToken:", localStorage.getItem("authToken"));
-    console.log("- userData:", localStorage.getItem("userData"));
+  // Function to handle APK download
+  const handleDownloadApp = async () => {
+    setDownloading(true);
+    
+    try {
+      // Create a temporary link element to trigger download
+      const downloadUrl = "https://api.shumbawheels.co.zw/api/download-app";
+      
+      // Method 1: Direct window.open (simplest)
+      window.open(downloadUrl, "_blank");
+      
+      // Method 2: Using fetch and creating blob (more control)
+      // const response = await fetch(downloadUrl);
+      // const blob = await response.blob();
+      // const url = window.URL.createObjectURL(blob);
+      // const link = document.createElement('a');
+      // link.href = url;
+      // link.download = 'shumba-wheels.apk'; // Default filename
+      // document.body.appendChild(link);
+      // link.click();
+      // document.body.removeChild(link);
+      // window.URL.revokeObjectURL(url);
+      
+      console.log("📱 APK download initiated");
+    } catch (err) {
+      console.error("❌ Error downloading APK:", err);
+      setError("Failed to download app. Please try again later.");
+    } finally {
+      setDownloading(false);
+    }
   };
+
+  // Google Play Store link (update with your actual Play Store URL)
+  const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.shumbawheels.app";
 
   return (
     <Container
@@ -207,10 +234,36 @@ const LoginPage = () => {
           <div className="text-center border-top pt-3">
             <p className="text-muted mb-2">Get the mobile app</p>
             <div className="d-flex justify-content-center gap-2">
-              <Button size="sm" variant="dark" disabled={loading}>
-                Direct Download
+              <Button 
+                size="sm" 
+                variant="dark" 
+                onClick={handleDownloadApp}
+                disabled={loading || downloading}
+              >
+                {downloading ? (
+                  <>
+                    <Spinner
+                      as="span"
+                      animation="border"
+                      size="sm"
+                      role="status"
+                      aria-hidden="true"
+                      className="me-1"
+                    />
+                    Downloading...
+                  </>
+                ) : (
+                  "Direct Download"
+                )}
               </Button>
-              <Button size="sm" variant="success" disabled={loading}>
+              <Button 
+                size="sm" 
+                variant="success" 
+                href={googlePlayUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                disabled={loading}
+              >
                 Google Play
               </Button>
             </div>
