@@ -1,6 +1,6 @@
 // components/Settings.jsx
-import React, { useState } from "react";
-import { Card, Form, Button, Row, Col, Alert } from "react-bootstrap";
+import React, { useState, useEffect } from "react";
+import { Card, Form, Button, Row, Col, Alert, InputGroup } from "react-bootstrap";
 
 const Settings = () => {
   const [settings, setSettings] = useState({
@@ -14,9 +14,43 @@ const Settings = () => {
     currency: "USD",
   });
 
+  const [bookingPrices, setBookingPrices] = useState({
+    oralLesson: 0,
+    lessonBooking: 0,
+    vehicleBooking: 0,
+  });
+
   const [saving, setSaving] = useState(false);
+  const [savingPrices, setSavingPrices] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [priceSaveSuccess, setPriceSaveSuccess] = useState(false);
   const [errors, setErrors] = useState({});
+  const [priceErrors, setPriceErrors] = useState({});
+
+  // Fetch initial booking prices on component mount
+  useEffect(() => {
+    fetchBookingPrices();
+  }, []);
+
+  const fetchBookingPrices = async () => {
+    try {
+      // Simulate API call to fetch prices
+      // const response = await fetch('https://api.shumbawheels.co.zw/api/admin/booking-prices');
+      // const data = await response.json();
+      
+      // Mock data - replace with actual API response
+      const mockPrices = {
+        oralLesson: 15,
+        lessonBooking: 25,
+        vehicleBooking: 50,
+      };
+      
+      setBookingPrices(mockPrices);
+    } catch (error) {
+      console.error('Error fetching booking prices:', error);
+      // Keep default values if fetch fails
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -28,6 +62,33 @@ const Settings = () => {
     // Clear error for this field
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
+    }
+  };
+
+  const handlePriceChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Allow only numbers and one decimal point
+    const numericValue = value.replace(/[^0-9.]/g, '');
+    const parts = numericValue.split('.');
+    
+    // Ensure only one decimal point and max 2 decimal places
+    let finalValue = numericValue;
+    if (parts.length > 2) {
+      finalValue = parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (parts.length === 2 && parts[1].length > 2) {
+      finalValue = parts[0] + '.' + parts[1].slice(0, 2);
+    }
+    
+    setBookingPrices((prev) => ({
+      ...prev,
+      [name]: finalValue === '' ? '' : parseFloat(finalValue) || 0,
+    }));
+    
+    // Clear error for this field
+    if (priceErrors[name]) {
+      setPriceErrors((prev) => ({ ...prev, [name]: "" }));
     }
   };
 
@@ -61,6 +122,37 @@ const Settings = () => {
     }
     
     setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const validatePriceForm = () => {
+    const newErrors = {};
+    
+    if (bookingPrices.oralLesson < 0) {
+      newErrors.oralLesson = "Oral lesson price cannot be negative";
+    }
+    
+    if (bookingPrices.lessonBooking < 0) {
+      newErrors.lessonBooking = "Lesson booking price cannot be negative";
+    }
+    
+    if (bookingPrices.vehicleBooking < 0) {
+      newErrors.vehicleBooking = "Vehicle booking price cannot be negative";
+    }
+    
+    if (bookingPrices.oralLesson === '' || isNaN(bookingPrices.oralLesson)) {
+      newErrors.oralLesson = "Oral lesson price must be a valid number";
+    }
+    
+    if (bookingPrices.lessonBooking === '' || isNaN(bookingPrices.lessonBooking)) {
+      newErrors.lessonBooking = "Lesson booking price must be a valid number";
+    }
+    
+    if (bookingPrices.vehicleBooking === '' || isNaN(bookingPrices.vehicleBooking)) {
+      newErrors.vehicleBooking = "Vehicle booking price must be a valid number";
+    }
+    
+    setPriceErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -100,6 +192,42 @@ const Settings = () => {
     }
   };
 
+  const handlePriceSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!validatePriceForm()) {
+      return;
+    }
+    
+    setSavingPrices(true);
+    setPriceSaveSuccess(false);
+    
+    try {
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Here you would normally make an API call to save booking prices
+      // await fetch('https://api.shumbawheels.co.zw/api/admin/booking-prices', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //   },
+      //   body: JSON.stringify(bookingPrices)
+      // });
+      
+      setPriceSaveSuccess(true);
+      
+      // Hide success message after 3 seconds
+      setTimeout(() => setPriceSaveSuccess(false), 3000);
+      
+    } catch (error) {
+      console.error('Error saving booking prices:', error);
+      setPriceErrors({ submit: "Failed to save booking prices. Please try again." });
+    } finally {
+      setSavingPrices(false);
+    }
+  };
+
   const handleReset = () => {
     setSettings({
       appName: "Shumba Wheels",
@@ -114,6 +242,30 @@ const Settings = () => {
     setErrors({});
     setSaveSuccess(false);
   };
+
+  const handlePriceReset = () => {
+    setBookingPrices({
+      oralLesson: 15,
+      lessonBooking: 25,
+      vehicleBooking: 50,
+    });
+    setPriceErrors({});
+    setPriceSaveSuccess(false);
+  };
+
+  // Get currency symbol based on selected currency
+  const getCurrencySymbol = () => {
+    switch(settings.currency) {
+      case 'USD': return '$';
+      case 'ZAR': return 'R';
+      case 'ZWL': return 'ZWL$';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      default: return '$';
+    }
+  };
+
+  const currencySymbol = getCurrencySymbol();
 
   return (
     <div className="p-4">
@@ -140,12 +292,172 @@ const Settings = () => {
         </Alert>
       )}
 
+      {priceSaveSuccess && (
+        <Alert variant="success" className="mb-4" dismissible onClose={() => setPriceSaveSuccess(false)}>
+          <i className="bi bi-check-circle me-2"></i>
+          Booking prices updated successfully!
+        </Alert>
+      )}
+
       {errors.submit && (
         <Alert variant="danger" className="mb-4">
           <i className="bi bi-exclamation-circle me-2"></i>
           {errors.submit}
         </Alert>
       )}
+
+      {priceErrors.submit && (
+        <Alert variant="danger" className="mb-4">
+          <i className="bi bi-exclamation-circle me-2"></i>
+          {priceErrors.submit}
+        </Alert>
+      )}
+
+      {/* Booking Prices Section */}
+      <Card className="shadow-sm border-primary mb-4">
+        <Card.Body>
+          <Card.Title className="text-primary mb-4">
+            <i className="bi bi-currency-dollar me-2"></i>
+            Booking Prices
+          </Card.Title>
+          
+          <Form onSubmit={handlePriceSubmit}>
+            <Row>
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Oral Lesson Price</Form.Label>
+                  <InputGroup>
+                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      name="oralLesson"
+                      value={bookingPrices.oralLesson}
+                      onChange={handlePriceChange}
+                      isInvalid={!!priceErrors.oralLesson}
+                      placeholder="Enter price"
+                    />
+                  </InputGroup>
+                  <Form.Control.Feedback type="invalid">
+                    {priceErrors.oralLesson}
+                  </Form.Control.Feedback>
+                  <Form.Text className="text-muted">
+                    Price for oral theory lessons
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Lesson Booking Price</Form.Label>
+                  <InputGroup>
+                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      name="lessonBooking"
+                      value={bookingPrices.lessonBooking}
+                      onChange={handlePriceChange}
+                      isInvalid={!!priceErrors.lessonBooking}
+                      placeholder="Enter price"
+                    />
+                  </InputGroup>
+                  <Form.Control.Feedback type="invalid">
+                    {priceErrors.lessonBooking}
+                  </Form.Control.Feedback>
+                  <Form.Text className="text-muted">
+                    Price for practical driving lessons
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Vehicle Booking Price</Form.Label>
+                  <InputGroup>
+                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      name="vehicleBooking"
+                      value={bookingPrices.vehicleBooking}
+                      onChange={handlePriceChange}
+                      isInvalid={!!priceErrors.vehicleBooking}
+                      placeholder="Enter price"
+                    />
+                  </InputGroup>
+                  <Form.Control.Feedback type="invalid">
+                    {priceErrors.vehicleBooking}
+                  </Form.Control.Feedback>
+                  <Form.Text className="text-muted">
+                    Price for vehicle rental/exam use
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <div className="d-flex justify-content-end gap-3 mt-4">
+              <Button 
+                variant="outline-secondary" 
+                onClick={handlePriceReset}
+                disabled={savingPrices}
+              >
+                Reset Prices
+              </Button>
+              <Button 
+                variant="primary" 
+                type="submit"
+                disabled={savingPrices}
+              >
+                {savingPrices ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Saving Prices...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-currency-dollar me-2"></i>
+                    Update Booking Prices
+                  </>
+                )}
+              </Button>
+            </div>
+          </Form>
+
+          <div className="mt-4 pt-3 border-top">
+            <h6 className="fw-semibold mb-3">Current Price Summary</h6>
+            <Row>
+              <Col md={4}>
+                <Card className="text-center border-0 bg-light">
+                  <Card.Body>
+                    <h6 className="text-muted">Oral Lesson</h6>
+                    <h4 className="fw-bold text-primary">
+                      {currencySymbol}{bookingPrices.oralLesson}
+                    </h4>
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={4}>
+                <Card className="text-center border-0 bg-light">
+                  <Card.Body>
+                    <h6 className="text-muted">Lesson Booking</h6>
+                    <h4 className="fw-bold text-success">
+                      {currencySymbol}{bookingPrices.lessonBooking}
+                    </h4>
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={4}>
+                <Card className="text-center border-0 bg-light">
+                  <Card.Body>
+                    <h6 className="text-muted">Vehicle Booking</h6>
+                    <h4 className="fw-bold text-warning">
+                      {currencySymbol}{bookingPrices.vehicleBooking}
+                    </h4>
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+          </div>
+        </Card.Body>
+      </Card>
 
       <Form onSubmit={handleSubmit}>
         <Row>
@@ -216,6 +528,9 @@ const Settings = () => {
                     <option value="EUR">Euro (€)</option>
                     <option value="GBP">British Pound (£)</option>
                   </Form.Select>
+                  <Form.Text className="text-muted">
+                    This affects all price displays including booking prices
+                  </Form.Text>
                 </Form.Group>
 
                 <Form.Group className="mb-3">
@@ -226,8 +541,10 @@ const Settings = () => {
                     label="Maintenance Mode"
                     checked={settings.maintenanceMode}
                     onChange={handleChange}
-                    helpText="When enabled, users will see a maintenance message instead of the app"
                   />
+                  <Form.Text className="text-muted">
+                    When enabled, users will see a maintenance message instead of the app
+                  </Form.Text>
                 </Form.Group>
               </Card.Body>
             </Card>
