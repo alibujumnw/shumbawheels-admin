@@ -5,34 +5,25 @@ import { Card, Form, Button, Alert, ProgressBar, Table, Badge, Row, Col } from "
 const ApkUpload = () => {
   const [apkFile, setApkFile] = useState(null);
   const [version, setVersion] = useState("");
+  const [filenameInput, setFilenameInput] = useState("");
+  const [status, setStatus] = useState("active");
+  const [downloadsInput, setDownloadsInput] = useState(0);
+  const [sizeInput, setSizeInput] = useState(0); // in MB
   const [changelog, setChangelog] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadedApks, setUploadedApks] = useState([
-    {
-      id: 1,
-      filename: "app-v1.2.0.apk",
-      version: "1.2.0",
-      size: "25.4 MB",
-      uploadDate: "2024-01-15",
-      downloads: 154,
-      status: "active"
-    },
-    {
-      id: 2,
-      filename: "app-v1.1.5.apk",
-      version: "1.1.5",
-      size: "24.8 MB",
-      uploadDate: "2024-01-10",
-      downloads: 89,
-      status: "archived"
-    }
-  ]);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadedApks, setUploadedApks] = useState([]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file && file.type === "application/vnd.android.package-archive") {
+    if (!file) return;
+    const isApk = file.name.toLowerCase().endsWith('.apk') || file.type === 'application/vnd.android.package-archive';
+    if (file && isApk) {
       setApkFile(file);
+      setFilenameInput(file.name);
+      const sizeMB = parseFloat((file.size / (1024 * 1024)).toFixed(2));
+      setSizeInput(sizeMB);
     } else {
       alert("Please select a valid APK file");
       e.target.value = "";
@@ -41,49 +32,100 @@ const ApkUpload = () => {
 
   const handleUpload = (e) => {
     e.preventDefault();
-    
+
+    setUploadError("");
+
     if (!apkFile) {
-      alert("Please select an APK file");
-      return;
-    }
-    
-    if (!version.trim()) {
-      alert("Please enter version number");
+      setUploadError('Please select an APK file');
       return;
     }
 
-    // Simulate upload process
+    if (!version.trim()) {
+      setUploadError('Please enter version number');
+      return;
+    }
+
+    if (!filenameInput.trim()) {
+      setUploadError('Filename is required');
+      return;
+    }
+
+    if (!['active', 'inactive'].includes(status)) {
+      setUploadError('Status must be active or inactive');
+      return;
+    }
+
+    if (isNaN(downloadsInput) || downloadsInput < 0) {
+      setUploadError('Downloads must be 0 or greater');
+      return;
+    }
+
+    if (isNaN(sizeInput) || sizeInput < 0) {
+      setUploadError('Size must be 0 or greater');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('version', version);
+    formData.append('file_path', apkFile);
+    formData.append('filename', filenameInput);
+    formData.append('status', status);
+    formData.append('downloads', String(parseInt(downloadsInput, 10)));
+    formData.append('size', String(parseFloat(sizeInput)));
+
     setIsUploading(true);
     setUploadProgress(0);
-    
-    const uploadInterval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(uploadInterval);
-          setIsUploading(false);
-          
-          // Add new APK to the list
-          const newApk = {
-            id: uploadedApks.length + 1,
-            filename: apkFile.name,
-            version: version,
-            size: `${(apkFile.size / (1024 * 1024)).toFixed(1)} MB`,
-            uploadDate: new Date().toISOString().split('T')[0],
-            downloads: 0,
-            status: "active"
-          };
-          
-          setUploadedApks([newApk, ...uploadedApks]);
-          setApkFile(null);
-          setVersion("");
-          setChangelog("");
-          
-          alert("APK uploaded successfully!");
-          return 100;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'https://api.shumbawheels.co.zw/api/admin/upload-apk', true);
+    const token = localStorage.getItem('token') || '';
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
+      }
+    };
+
+    xhr.onload = () => {
+      setIsUploading(false);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+        } catch (err) {
         }
-        return prev + 10;
-      });
-    }, 200);
+
+        const newApk = {
+          id: uploadedApks.length + 1,
+          filename: filenameInput,
+          version: version,
+          size: `${sizeInput} MB`,
+          uploadDate: new Date().toISOString().split('T')[0],
+          downloads: parseInt(downloadsInput, 10) || 0,
+          status: status
+        };
+
+        setUploadedApks([newApk, ...uploadedApks]);
+        setApkFile(null);
+        setVersion("");
+        setFilenameInput("");
+        setDownloadsInput(0);
+        setSizeInput(0);
+        setChangelog("");
+
+        alert('APK uploaded successfully!');
+      } else {
+        setUploadError(`Upload failed: ${xhr.statusText || xhr.status}`);
+      }
+    };
+
+    xhr.onerror = () => {
+      setIsUploading(false);
+      setUploadError('Network error during upload');
+    };
+
+    xhr.send(formData);
   };
 
   const handleDelete = (id) => {
@@ -155,13 +197,51 @@ const ApkUpload = () => {
               </Col>
               <Col md={6}>
                 <Form.Group>
-                  <Form.Label>File Size</Form.Label>
+                  <Form.Label>Filename *</Form.Label>
                   <Form.Control
                     type="text"
-                    value={apkFile ? `${(apkFile.size / (1024 * 1024)).toFixed(1)} MB` : "N/A"}
-                    readOnly
-                    disabled
+                    placeholder="Filename (e.g., app-v1.2.0.apk)"
+                    value={filenameInput}
+                    onChange={(e) => setFilenameInput(e.target.value)}
+                    disabled={isUploading}
                   />
+                </Form.Group>
+                <Form.Group className="mt-2">
+                  <Form.Label>Status *</Form.Label>
+                  <Form.Select value={status} onChange={(e) => setStatus(e.target.value)} disabled={isUploading}>
+                    <option value="active">active</option>
+                    <option value="inactive">inactive</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <Row className="mb-3">
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>Downloads *</Form.Label>
+                  <Form.Control
+                    type="number"
+                    min={0}
+                    value={downloadsInput}
+                    onChange={(e) => setDownloadsInput(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    disabled={isUploading}
+                  />
+                  <Form.Text className="text-muted">Number of times this APK has been downloaded</Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>Size (MB) *</Form.Label>
+                  <Form.Control
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={sizeInput}
+                    onChange={(e) => setSizeInput(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                    disabled={isUploading}
+                  />
+                  <Form.Text className="text-muted">Numeric size in megabytes (e.g., 25.4)</Form.Text>
                 </Form.Group>
               </Col>
             </Row>
@@ -177,6 +257,12 @@ const ApkUpload = () => {
                 disabled={isUploading}
               />
             </Form.Group>
+
+            {uploadError && (
+              <Alert variant="danger" className="mb-3">
+                {uploadError}
+              </Alert>
+            )}
 
             {isUploading && (
               <div className="mb-3">
