@@ -1,6 +1,6 @@
 // components/Settings.jsx
 import React, { useState, useEffect } from "react";
-import { Card, Form, Button, Row, Col, Alert, InputGroup } from "react-bootstrap";
+import { Card, Form, Button, Row, Col, Alert, InputGroup, Spinner } from "react-bootstrap";
 
 const Settings = () => {
   const [settings, setSettings] = useState({
@@ -14,41 +14,60 @@ const Settings = () => {
     currency: "USD",
   });
 
-  const [bookingPrices, setBookingPrices] = useState({
-    oralLesson: 0,
-    lessonBooking: 0,
-    vehicleBooking: 0,
+  // Booking fees from API
+  const [bookingFees, setBookingFees] = useState({
+    "car booking": { id: "", amount: 0 },
+    "application fee": { id: "", amount: 0 },
+    "oral lessons": { id: "", amount: 0 }
   });
 
   const [saving, setSaving] = useState(false);
-  const [savingPrices, setSavingPrices] = useState(false);
+  const [savingFees, setSavingFees] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [priceSaveSuccess, setPriceSaveSuccess] = useState(false);
+  const [feeSaveSuccess, setFeeSaveSuccess] = useState(false);
   const [errors, setErrors] = useState({});
-  const [priceErrors, setPriceErrors] = useState({});
+  const [feeErrors, setFeeErrors] = useState({});
+  const [loadingFees, setLoadingFees] = useState(false);
 
-  // Fetch initial booking prices on component mount
+  // Fetch initial booking fees from API on component mount
   useEffect(() => {
-    fetchBookingPrices();
+    fetchBookingFees();
   }, []);
 
-  const fetchBookingPrices = async () => {
+  const fetchBookingFees = async () => {
+    setLoadingFees(true);
     try {
-      // Simulate API call to fetch prices
-      // const response = await fetch('https://api.shumbawheels.co.zw/api/admin/booking-prices');
-      // const data = await response.json();
+      // Actual API call to fetch fees
+      const response = await fetch('https://api.shumbawheels.co.zw/api/admin/gee-fee', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'Content-Type': 'application/json',
+        }
+      });
       
-      // Mock data - replace with actual API response
-      const mockPrices = {
-        oralLesson: 15,
-        lessonBooking: 25,
-        vehicleBooking: 50,
-      };
+      if (!response.ok) {
+        throw new Error(`Failed to fetch fees: ${response.status}`);
+      }
       
-      setBookingPrices(mockPrices);
+      const data = await response.json();
+      
+      // Transform API response to our state format
+      const transformedFees = {};
+      data.data.forEach(fee => {
+        const feeName = fee.name.toLowerCase();
+        transformedFees[feeName] = {
+          id: fee.id,
+          amount: parseFloat(fee.amount) || 0
+        };
+      });
+      
+      setBookingFees(transformedFees);
+      
     } catch (error) {
-      console.error('Error fetching booking prices:', error);
+      console.error('Error fetching booking fees:', error);
       // Keep default values if fetch fails
+    } finally {
+      setLoadingFees(false);
     }
   };
 
@@ -65,9 +84,7 @@ const Settings = () => {
     }
   };
 
-  const handlePriceChange = (e) => {
-    const { name, value } = e.target;
-    
+  const handleFeeChange = (feeName, value) => {
     // Allow only numbers and one decimal point
     const numericValue = value.replace(/[^0-9.]/g, '');
     const parts = numericValue.split('.');
@@ -81,14 +98,19 @@ const Settings = () => {
       finalValue = parts[0] + '.' + parts[1].slice(0, 2);
     }
     
-    setBookingPrices((prev) => ({
+    const finalAmount = finalValue === '' ? '' : parseFloat(finalValue) || 0;
+    
+    setBookingFees((prev) => ({
       ...prev,
-      [name]: finalValue === '' ? '' : parseFloat(finalValue) || 0,
+      [feeName]: {
+        ...prev[feeName],
+        amount: finalAmount
+      }
     }));
     
     // Clear error for this field
-    if (priceErrors[name]) {
-      setPriceErrors((prev) => ({ ...prev, [name]: "" }));
+    if (feeErrors[feeName]) {
+      setFeeErrors((prev) => ({ ...prev, [feeName]: "" }));
     }
   };
 
@@ -125,34 +147,20 @@ const Settings = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const validatePriceForm = () => {
+  const validateFeeForm = () => {
     const newErrors = {};
     
-    if (bookingPrices.oralLesson < 0) {
-      newErrors.oralLesson = "Oral lesson price cannot be negative";
-    }
+    Object.keys(bookingFees).forEach(feeName => {
+      const fee = bookingFees[feeName];
+      
+      if (fee.amount === '' || isNaN(fee.amount)) {
+        newErrors[feeName] = "Amount must be a valid number";
+      } else if (fee.amount < 0) {
+        newErrors[feeName] = "Amount cannot be negative";
+      }
+    });
     
-    if (bookingPrices.lessonBooking < 0) {
-      newErrors.lessonBooking = "Lesson booking price cannot be negative";
-    }
-    
-    if (bookingPrices.vehicleBooking < 0) {
-      newErrors.vehicleBooking = "Vehicle booking price cannot be negative";
-    }
-    
-    if (bookingPrices.oralLesson === '' || isNaN(bookingPrices.oralLesson)) {
-      newErrors.oralLesson = "Oral lesson price must be a valid number";
-    }
-    
-    if (bookingPrices.lessonBooking === '' || isNaN(bookingPrices.lessonBooking)) {
-      newErrors.lessonBooking = "Lesson booking price must be a valid number";
-    }
-    
-    if (bookingPrices.vehicleBooking === '' || isNaN(bookingPrices.vehicleBooking)) {
-      newErrors.vehicleBooking = "Vehicle booking price must be a valid number";
-    }
-    
-    setPriceErrors(newErrors);
+    setFeeErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -167,14 +175,15 @@ const Settings = () => {
     setSaveSuccess(false);
     
     try {
-      // Simulate API call
+      // Simulate API call for general settings
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Here you would normally make an API call to save settings
-      // await fetch('https://api.shumbawheels.co.zw/api/admin/settings', {
+      // Here you would normally make an API call to save general settings
+      // await fetch('https://api.shumbawheels.co.zw/api/admin/update-settings', {
       //   method: 'POST',
       //   headers: {
       //     'Content-Type': 'application/json',
+      //     'Authorization': `Bearer ${localStorage.getItem('token')}`
       //   },
       //   body: JSON.stringify(settings)
       // });
@@ -192,39 +201,58 @@ const Settings = () => {
     }
   };
 
-  const handlePriceSubmit = async (e) => {
+  const handleFeeSubmit = async (e) => {
     e.preventDefault();
     
-    if (!validatePriceForm()) {
+    if (!validateFeeForm()) {
       return;
     }
     
-    setSavingPrices(true);
-    setPriceSaveSuccess(false);
+    setSavingFees(true);
+    setFeeSaveSuccess(false);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Prepare update requests for each fee
+      const updatePromises = Object.keys(bookingFees).map(async (feeName) => {
+        const fee = bookingFees[feeName];
+        
+        // Skip if no changes or no ID
+        if (!fee.id) return;
+        
+        const updateData = {
+          name: feeName,
+          amount: fee.amount.toString()
+        };
+        
+        // Actual API call to update each fee
+        const response = await fetch('https://api.shumbawheels.co.zw/api/admin/update-settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+          },
+          body: JSON.stringify(updateData)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to update ${feeName}`);
+        }
+        
+        return response.json();
+      });
       
-      // Here you would normally make an API call to save booking prices
-      // await fetch('https://api.shumbawheels.co.zw/api/admin/booking-prices', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: JSON.stringify(bookingPrices)
-      // });
+      await Promise.all(updatePromises);
       
-      setPriceSaveSuccess(true);
+      setFeeSaveSuccess(true);
       
       // Hide success message after 3 seconds
-      setTimeout(() => setPriceSaveSuccess(false), 3000);
+      setTimeout(() => setFeeSaveSuccess(false), 3000);
       
     } catch (error) {
-      console.error('Error saving booking prices:', error);
-      setPriceErrors({ submit: "Failed to save booking prices. Please try again." });
+      console.error('Error saving booking fees:', error);
+      setFeeErrors({ submit: "Failed to save booking fees. Please try again." });
     } finally {
-      setSavingPrices(false);
+      setSavingFees(false);
     }
   };
 
@@ -243,14 +271,11 @@ const Settings = () => {
     setSaveSuccess(false);
   };
 
-  const handlePriceReset = () => {
-    setBookingPrices({
-      oralLesson: 15,
-      lessonBooking: 25,
-      vehicleBooking: 50,
-    });
-    setPriceErrors({});
-    setPriceSaveSuccess(false);
+  const handleFeeReset = async () => {
+    // Reload fees from API
+    await fetchBookingFees();
+    setFeeErrors({});
+    setFeeSaveSuccess(false);
   };
 
   // Get currency symbol based on selected currency
@@ -266,6 +291,14 @@ const Settings = () => {
   };
 
   const currencySymbol = getCurrencySymbol();
+
+  // Helper function to format fee name for display
+  const formatFeeName = (name) => {
+    return name
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
 
   return (
     <div className="p-4">
@@ -292,10 +325,10 @@ const Settings = () => {
         </Alert>
       )}
 
-      {priceSaveSuccess && (
-        <Alert variant="success" className="mb-4" dismissible onClose={() => setPriceSaveSuccess(false)}>
+      {feeSaveSuccess && (
+        <Alert variant="success" className="mb-4" dismissible onClose={() => setFeeSaveSuccess(false)}>
           <i className="bi bi-check-circle me-2"></i>
-          Booking prices updated successfully!
+          Booking fees updated successfully!
         </Alert>
       )}
 
@@ -306,159 +339,117 @@ const Settings = () => {
         </Alert>
       )}
 
-      {priceErrors.submit && (
+      {feeErrors.submit && (
         <Alert variant="danger" className="mb-4">
           <i className="bi bi-exclamation-circle me-2"></i>
-          {priceErrors.submit}
+          {feeErrors.submit}
         </Alert>
       )}
 
-      {/* Booking Prices Section */}
+      {/* Booking Fees Section */}
       <Card className="shadow-sm border-primary mb-4">
         <Card.Body>
           <Card.Title className="text-primary mb-4">
             <i className="bi bi-currency-dollar me-2"></i>
-            Booking Prices
+            Booking Fees
+            {loadingFees && (
+              <Spinner animation="border" size="sm" className="ms-2" />
+            )}
           </Card.Title>
           
-          <Form onSubmit={handlePriceSubmit}>
-            <Row>
-              <Col md={4}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Oral Lesson Price</Form.Label>
-                  <InputGroup>
-                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
-                    <Form.Control
-                      type="text"
-                      name="oralLesson"
-                      value={bookingPrices.oralLesson}
-                      onChange={handlePriceChange}
-                      isInvalid={!!priceErrors.oralLesson}
-                      placeholder="Enter price"
-                    />
-                  </InputGroup>
-                  <Form.Control.Feedback type="invalid">
-                    {priceErrors.oralLesson}
-                  </Form.Control.Feedback>
-                  <Form.Text className="text-muted">
-                    Price for oral theory lessons
-                  </Form.Text>
-                </Form.Group>
-              </Col>
+          <Form onSubmit={handleFeeSubmit}>
+            {loadingFees ? (
+              <div className="text-center py-4">
+                <Spinner animation="border" variant="primary" />
+                <p className="mt-2 text-muted">Loading fees...</p>
+              </div>
+            ) : (
+              <>
+                <Row>
+                  {Object.keys(bookingFees).map((feeName, index) => (
+                    <Col md={4} key={feeName}>
+                      <Form.Group className="mb-3">
+                        <Form.Label>{formatFeeName(feeName)}</Form.Label>
+                        <InputGroup>
+                          <InputGroup.Text>{currencySymbol}</InputGroup.Text>
+                          <Form.Control
+                            type="text"
+                            value={bookingFees[feeName].amount || ''}
+                            onChange={(e) => handleFeeChange(feeName, e.target.value)}
+                            isInvalid={!!feeErrors[feeName]}
+                            placeholder="Enter amount"
+                            disabled={!bookingFees[feeName].id}
+                          />
+                        </InputGroup>
+                        <Form.Control.Feedback type="invalid">
+                          {feeErrors[feeName]}
+                        </Form.Control.Feedback>
+                        <Form.Text className="text-muted">
+                          {feeName === 'car booking' && 'Fee for vehicle rental/exam use'}
+                          {feeName === 'application fee' && 'Application processing fee'}
+                          {feeName === 'oral lessons' && 'Fee for oral theory lessons'}
+                        </Form.Text>
+                      </Form.Group>
+                    </Col>
+                  ))}
+                </Row>
 
-              <Col md={4}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Lesson Booking Price</Form.Label>
-                  <InputGroup>
-                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
-                    <Form.Control
-                      type="text"
-                      name="lessonBooking"
-                      value={bookingPrices.lessonBooking}
-                      onChange={handlePriceChange}
-                      isInvalid={!!priceErrors.lessonBooking}
-                      placeholder="Enter price"
-                    />
-                  </InputGroup>
-                  <Form.Control.Feedback type="invalid">
-                    {priceErrors.lessonBooking}
-                  </Form.Control.Feedback>
-                  <Form.Text className="text-muted">
-                    Price for practical driving lessons
-                  </Form.Text>
-                </Form.Group>
-              </Col>
+                <div className="d-flex justify-content-end gap-3 mt-4">
+                  <Button 
+                    variant="outline-secondary" 
+                    onClick={handleFeeReset}
+                    disabled={savingFees || loadingFees}
+                  >
+                    Reset Fees
+                  </Button>
+                  <Button 
+                    variant="primary" 
+                    type="submit"
+                    disabled={savingFees || loadingFees}
+                  >
+                    {savingFees ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Saving Fees...
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-currency-dollar me-2"></i>
+                        Update Booking Fees
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
 
-              <Col md={4}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Vehicle Booking Price</Form.Label>
-                  <InputGroup>
-                    <InputGroup.Text>{currencySymbol}</InputGroup.Text>
-                    <Form.Control
-                      type="text"
-                      name="vehicleBooking"
-                      value={bookingPrices.vehicleBooking}
-                      onChange={handlePriceChange}
-                      isInvalid={!!priceErrors.vehicleBooking}
-                      placeholder="Enter price"
-                    />
-                  </InputGroup>
-                  <Form.Control.Feedback type="invalid">
-                    {priceErrors.vehicleBooking}
-                  </Form.Control.Feedback>
-                  <Form.Text className="text-muted">
-                    Price for vehicle rental/exam use
-                  </Form.Text>
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <div className="d-flex justify-content-end gap-3 mt-4">
-              <Button 
-                variant="outline-secondary" 
-                onClick={handlePriceReset}
-                disabled={savingPrices}
-              >
-                Reset Prices
-              </Button>
-              <Button 
-                variant="primary" 
-                type="submit"
-                disabled={savingPrices}
-              >
-                {savingPrices ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                    Saving Prices...
-                  </>
-                ) : (
-                  <>
-                    <i className="bi bi-currency-dollar me-2"></i>
-                    Update Booking Prices
-                  </>
-                )}
-              </Button>
+            <div className="mt-4 pt-3 border-top">
+              <h6 className="fw-semibold mb-3">Current Fee Summary</h6>
+              <Row>
+                {Object.keys(bookingFees).map((feeName, index) => {
+                  const colors = ['primary', 'success', 'warning'];
+                  const color = colors[index % colors.length];
+                  
+                  return (
+                    <Col md={4} key={feeName}>
+                      <Card className="text-center border-0 bg-light">
+                        <Card.Body>
+                          <h6 className="text-muted">{formatFeeName(feeName)}</h6>
+                          <h4 className={`fw-bold text-${color}`}>
+                            {currencySymbol}{bookingFees[feeName].amount || '0.00'}
+                          </h4>
+                        </Card.Body>
+                      </Card>
+                    </Col>
+                  );
+                })}
+              </Row>
             </div>
           </Form>
-
-          <div className="mt-4 pt-3 border-top">
-            <h6 className="fw-semibold mb-3">Current Price Summary</h6>
-            <Row>
-              <Col md={4}>
-                <Card className="text-center border-0 bg-light">
-                  <Card.Body>
-                    <h6 className="text-muted">Oral Lesson</h6>
-                    <h4 className="fw-bold text-primary">
-                      {currencySymbol}{bookingPrices.oralLesson}
-                    </h4>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={4}>
-                <Card className="text-center border-0 bg-light">
-                  <Card.Body>
-                    <h6 className="text-muted">Lesson Booking</h6>
-                    <h4 className="fw-bold text-success">
-                      {currencySymbol}{bookingPrices.lessonBooking}
-                    </h4>
-                  </Card.Body>
-                </Card>
-              </Col>
-              <Col md={4}>
-                <Card className="text-center border-0 bg-light">
-                  <Card.Body>
-                    <h6 className="text-muted">Vehicle Booking</h6>
-                    <h4 className="fw-bold text-warning">
-                      {currencySymbol}{bookingPrices.vehicleBooking}
-                    </h4>
-                  </Card.Body>
-                </Card>
-              </Col>
-            </Row>
-          </div>
         </Card.Body>
       </Card>
 
+      {/* Rest of the component remains the same */}
       <Form onSubmit={handleSubmit}>
         <Row>
           {/* General Settings */}
@@ -529,7 +520,7 @@ const Settings = () => {
                     <option value="GBP">British Pound (£)</option>
                   </Form.Select>
                   <Form.Text className="text-muted">
-                    This affects all price displays including booking prices
+                    This affects all price displays including booking fees
                   </Form.Text>
                 </Form.Group>
 
