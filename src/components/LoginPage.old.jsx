@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+// components/LoginPage.jsx
+import React, { useState, useEffect } from "react";
 import { Container, Form, Button, Card, Alert, Spinner } from "react-bootstrap";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { useAuth } from "../context/AuthContext";
 
 const LoginPage = () => {
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -11,6 +13,14 @@ const LoginPage = () => {
   const [downloading, setDownloading] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState(null);
   const navigate = useNavigate();
+  const { login, isAuthenticated } = useAuth();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -41,7 +51,6 @@ const LoginPage = () => {
         }
       );
 
-    
       const responseData = response.data;
       
       const isSuccess = 
@@ -52,18 +61,21 @@ const LoginPage = () => {
         response.status === 200;
       
       if (isSuccess) {
+        // Get token from response
+        const token = responseData.token || responseData.access_token || "";
+        const userData = responseData.user || responseData.data || {};
         
-        // Store authentication data - ALWAYS store
+        // Store authentication data
         localStorage.setItem("isAuthenticated", "true");
         localStorage.setItem("userPhone", phoneNumber.trim());
-        localStorage.setItem("authToken", responseData.token || responseData.access_token || "");
-        localStorage.setItem("userData", JSON.stringify(responseData.user || responseData.data || {}));
-         
-        // Force a small delay to ensure localStorage is set
-        setTimeout(() => {
-          console.log("🔄 Redirecting to /dashboard");
-          navigate("/dashboard", { replace: true });
-        }, 100);
+        localStorage.setItem("authToken", token);
+        localStorage.setItem("userData", JSON.stringify(userData));
+        
+        // Update auth context
+        login(userData, phoneNumber.trim(), token);
+        
+        // Navigate to dashboard
+        navigate("/dashboard", { replace: true });
         
       } else {
         console.warn("⚠️ API returned non-success response:", responseData);

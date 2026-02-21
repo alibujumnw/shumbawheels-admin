@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Row, Col, Button, Card, Badge, Table } from "react-bootstrap";
-import Users from "./Users"; // <-- Import the real Users component
+import { useAuth } from "../context/AuthContext";
+import Users from "./Users";
 import Answers from "./Answers";
 import Notes from "./Notes";
 import Exams from "./Exams";
@@ -14,13 +15,20 @@ import ApkUpload from "./ApkUpload";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const userPhone = localStorage.getItem("userPhone");
+  const { user, logout, loading } = useAuth();
   const [showSidebar, setShowSidebar] = useState(true);
   const [activeView, setActiveView] = useState("dashboard");
 
+  // Redirect if not authenticated (additional safety)
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/login", { replace: true });
+    }
+  }, [user, loading, navigate]);
+
   const handleLogout = () => {
-    localStorage.clear();
-    navigate("/login");
+    logout();
+    navigate("/login", { replace: true });
   };
 
   const [stats, setStats] = useState({
@@ -32,10 +40,11 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    const token =
-      localStorage.getItem("token") ||
-      localStorage.getItem("userToken") ||
-      localStorage.getItem("authToken");
+    const token = user?.token || 
+                  localStorage.getItem("token") ||
+                  localStorage.getItem("userToken") ||
+                  localStorage.getItem("authToken");
+    
     if (!token) return;
     
     // Fetch payments count
@@ -77,7 +86,18 @@ const Dashboard = () => {
       .catch((err) => {
         console.error("Failed to fetch total users", err);
       });
-  }, []);
+  }, [user]); // Re-run when user changes
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center vh-100">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   const monthlyExams = [
     { month: "Jan", count: 14 },
@@ -112,7 +132,7 @@ const Dashboard = () => {
   const renderContent = () => {
     switch (activeView) {
       case "users":
-        return <Users />; // <-- This will now render the real Users component
+        return <Users />;
       case "questions":
         return <Questions />;
       case "answers":
@@ -214,7 +234,7 @@ const Dashboard = () => {
           </Col>
 
           <Col xs={6} className="text-end">
-            <span className="me-3 fw-medium">{userPhone || "Admin"}</span>
+            <span className="me-3 fw-medium">{user?.phone || "Admin"}</span>
             <Button variant="outline-danger" size="sm" onClick={handleLogout}>
               Logout
             </Button>
