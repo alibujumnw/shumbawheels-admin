@@ -4,6 +4,7 @@ import { Container, Row, Col, Button, Card, Modal, Form, Spinner, Navbar, Nav } 
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import logo from "../assets/logo.png"; 
 
 const LandingPage = () => {
   const [showLogin, setShowLogin] = useState(false);
@@ -356,13 +357,13 @@ const LandingPage = () => {
             </Col>
             <Col lg={6} className="text-center">
               <img 
-                src="/hero-image.png" 
+                src={logo} 
                 alt="Driving School" 
                 className="img-fluid rounded-3 shadow-lg"
                 style={{ maxHeight: '500px' }}
                 onError={(e) => {
                   e.target.onerror = null;
-                  e.target.src = 'https://via.placeholder.com/500x400?text=Shumba+Wheels'; {/*chech the correct image link */}
+                  e.target.src = logo; {/*chech the correct image link */}
                 }}
               />
             </Col>
